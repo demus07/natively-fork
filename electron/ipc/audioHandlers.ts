@@ -1,6 +1,6 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
-import { transcriptService } from '../services/googleSTT';
+import { transcriptService } from '../services/localTranscript';
 
 let pendingStartTimer: NodeJS.Timeout | null = null;
 let listenersBound = false;

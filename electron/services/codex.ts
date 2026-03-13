@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import fsSync from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import type { BrowserWindow } from 'electron';
+import { IPC_CHANNELS } from '../../src/shared';
 import { getSettingsCache } from './database';
 
 async function writeImageFile(imageBase64: string): Promise<string> {
@@ -32,12 +34,11 @@ function resolveCodexBinary(): string {
   return candidates.find((candidate) => candidate === 'codex' || fsSync.existsSync(candidate)) ?? 'codex';
 }
 
-export async function streamCodexResponse(
+export async function runCodex(
   prompt: string,
   imageBase64: string | undefined,
-  onChunk: (text: string) => void,
-  onComplete: () => void
-): Promise<void> {
+  win: BrowserWindow
+): Promise<string> {
   const settings = getSettingsCache();
   const codexBinary = resolveCodexBinary();
   const args = ['exec', '-m', settings.codexModel || 'codex-4', ...splitExtraFlags(settings.codexExtraFlags)];
@@ -48,7 +49,7 @@ export async function streamCodexResponse(
     args.push('-i', imagePath);
   }
 
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<string>((resolve, reject) => {
     const child = spawn(codexBinary, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
@@ -59,15 +60,17 @@ export async function streamCodexResponse(
     });
 
     let stderr = '';
-    let sawOutput = false;
+    let stdoutBuffer = '';
 
     child.stdout.on('data', (chunk: Buffer) => {
       const text = chunk.toString('utf8');
       if (!text) {
         return;
       }
-      sawOutput = true;
-      onChunk(text);
+      stdoutBuffer += text;
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.aiChunk, text);
+      }
     });
 
     child.stderr.on('data', (chunk: Buffer) => {
@@ -75,6 +78,9 @@ export async function streamCodexResponse(
     });
 
     child.on('error', (error) => {
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.aiError, error.message);
+      }
       reject(error);
     });
 
@@ -83,17 +89,25 @@ export async function streamCodexResponse(
 
     child.on('close', (code) => {
       if (code !== 0) {
+        if (!win.isDestroyed()) {
+          win.webContents.send(IPC_CHANNELS.aiError, stderr.trim() || `Codex CLI exited with code ${code}.`);
+        }
         reject(new Error(stderr.trim() || `Codex CLI exited with code ${code}.`));
         return;
       }
 
-      if (!sawOutput) {
+      if (!stdoutBuffer.trim()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send(IPC_CHANNELS.aiError, stderr.trim() || 'Codex CLI returned no output.');
+        }
         reject(new Error(stderr.trim() || 'Codex CLI returned no output.'));
         return;
       }
 
-      onComplete();
-      resolve();
+      if (!win.isDestroyed()) {
+        win.webContents.send(IPC_CHANNELS.aiComplete, { fullText: stdoutBuffer });
+      }
+      resolve(stdoutBuffer);
     });
   }).finally(async () => {
     if (imagePath) {

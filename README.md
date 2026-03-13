@@ -96,9 +96,10 @@ Current positioning:
 
 Current resize behavior:
 
-- the renderer reports content dimensions to main
+- the renderer reports content dimensions to main after streamed content changes
 - main clamps width to `720`
 - main clamps height between `120` and `360`
+- the window grows in steps as streamed answer content increases instead of snapping straight to max height
 
 Files responsible:
 
@@ -129,7 +130,8 @@ Quick actions currently visible:
 Current AI behavior:
 
 - quick actions create a new assistant response
-- response text streams progressively in the renderer
+- Codex stdout is streamed live from the child process into the renderer
+- response text is revealed progressively in the renderer
 - previous answers remain in the answer card scrollback during the same app session
 - requests use live transcript context plus current screenshot context
 
@@ -151,6 +153,7 @@ At the current project state:
 - local Codex requests work
 - AI response rendering works
 - assistant responses stream progressively
+- Codex streaming is real stdout streaming, not synthetic delayed chunking
 - microphone transcription works
 - transcript backend starts locally through Python
 - current-session answer history remains scrollable
@@ -260,7 +263,7 @@ Responsibilities:
 Responsibilities:
 
 - invoke local `codex`
-- stream stdout incrementally
+- stream stdout incrementally to renderer IPC as chunks arrive
 - append optional Codex flags from settings
 
 ## Transcript / Audio Layer
@@ -299,12 +302,11 @@ Responsibilities:
 - start/stop transcript backend
 - forward transcript updates/status/errors to renderer
 
-[electron/services/googleSTT.ts](/Users/sumedh/cluely-natively/electron/services/googleSTT.ts)
+[electron/services/localTranscript.ts](/Users/sumedh/cluely-natively/electron/services/localTranscript.ts)
 
 Important note:
 
-- filename kept for compatibility
-- runtime implementation is no longer Google STT
+- despite the old role, this is now the actual local transcript service module
 
 Current responsibilities:
 
@@ -412,15 +414,11 @@ Runtime dependencies:
 - `@tanstack/react-query`
 - `better-sqlite3`
 - `electron-is-dev`
-- `@google-cloud/speech`
-- `@google/generative-ai`
-- `groq-sdk`
 
 Important note:
 
-- `@google-cloud/speech`, `@google/generative-ai`, and `groq-sdk` remain present in the codebase, but the active runtime path is:
-  - AI: Codex CLI
-  - transcript: local `faster-whisper`
+- the only active AI runtime path is Codex CLI
+- the only active transcript runtime path is local `faster-whisper`
 
 Dev/build dependencies:
 
@@ -449,7 +447,7 @@ Current audio flow:
 4. `public/audioWorklet.js` batches and converts PCM to Int16
 5. Renderer sends PCM via `pushAudioChunk`
 6. Main process receives chunks in `audioHandlers.ts`
-7. `googleSTT.ts` buffers chunks and writes WAV segments
+7. `localTranscript.ts` buffers chunks and writes WAV segments
 8. `scripts/transcribe_server.py` transcribes segments via `faster-whisper`
 9. Transcript text is emitted back to renderer
 
@@ -461,7 +459,7 @@ There are two screen-context paths:
 
 - renderer keeps a live display-media preview
 - latest preview frame is cached as base64 screen context
-- AI requests use that current screen context
+- AI requests prefer that current screen context
 - if none exists, main process can capture a fresh screenshot
 
 ### 2. Explicit screenshot capture
@@ -533,12 +531,13 @@ At this handoff point:
 - screenshot visibility toggle exists in the capsule
 - previous responses remain visible and scrollable during the current app session
 - chat history clears only when the app is shut down and restarted
+- dead Gemini/Groq/Ollama service code has been removed
+- transcript service module is now `localTranscript.ts`
 
 ## Known Remaining Gaps
 
 - full pixel-perfect parity with the reference GIF still requires final micro-polish
 - system/output transcription still depends on real macOS routing into BlackHole
-- some dead provider code still exists in the tree even though the active path is now Codex + local transcript
 
 ## Files To Inspect First
 
@@ -551,5 +550,5 @@ If another engineer or model takes over, start here:
 5. [renderer/components/ChatPanel.tsx](/Users/sumedh/cluely-natively/renderer/components/ChatPanel.tsx)
 6. [electron/ipc/screenshotHandlers.ts](/Users/sumedh/cluely-natively/electron/ipc/screenshotHandlers.ts)
 7. [electron/ipc/aiHandlers.ts](/Users/sumedh/cluely-natively/electron/ipc/aiHandlers.ts)
-8. [electron/services/googleSTT.ts](/Users/sumedh/cluely-natively/electron/services/googleSTT.ts)
+8. [electron/services/localTranscript.ts](/Users/sumedh/cluely-natively/electron/services/localTranscript.ts)
 9. [scripts/transcribe_server.py](/Users/sumedh/cluely-natively/scripts/transcribe_server.py)

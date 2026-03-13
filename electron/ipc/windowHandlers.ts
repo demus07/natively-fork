@@ -30,7 +30,12 @@ export function initWindowHandlers(mainWindow: BrowserWindow): void {
   ipcMain.handle(IPC_CHANNELS.updateContentDimensions, (_event, dimensions: { width: number; height: number }) => {
     const width = Math.max(720, Math.ceil(dimensions.width));
     const height = Math.max(120, Math.ceil(dimensions.height));
-    mainWindow.setContentSize(Math.min(width, 720), Math.min(height, 360));
+    const clampedWidth = Math.min(width, 720);
+    const clampedHeight = Math.min(height, 360);
+    const [, currentHeight] = mainWindow.getContentSize();
+    if (Math.abs(currentHeight - clampedHeight) > 4) {
+      mainWindow.setContentSize(clampedWidth, clampedHeight, false);
+    }
     if (!hasShownOnce) {
       hasShownOnce = true;
       mainWindow.show();

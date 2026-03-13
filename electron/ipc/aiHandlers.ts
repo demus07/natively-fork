@@ -29,19 +29,15 @@ export function initAIHandlers(
         }
       }
 
-      await routeAIRequest(
-        {
-          ...payload,
-          screenshot
-        },
-        (chunk) => {
-          assistantResponse += chunk;
-          mainWindow.webContents.send(IPC_CHANNELS.aiChunk, chunk);
-        },
-        () => {
-          mainWindow.webContents.send(IPC_CHANNELS.aiComplete);
-        }
-      );
+      assistantResponse = (
+        await routeAIRequest(
+          {
+            ...payload,
+            screenshot
+          },
+          mainWindow
+        )
+      ).response;
 
       const tokensUsed = estimateTokens(assistantResponse);
       saveMessage('assistant', assistantResponse, sessionId, tokensUsed);

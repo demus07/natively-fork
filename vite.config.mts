@@ -16,7 +16,7 @@ export default defineConfig({
           build: {
             outDir: 'dist/electron',
             rollupOptions: {
-              external: ['electron', 'better-sqlite3', '@google-cloud/speech']
+              external: ['electron', 'better-sqlite3']
             }
           }
         }

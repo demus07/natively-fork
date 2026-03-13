@@ -1,6 +1,7 @@
 import type { AIPayload, Settings } from '../../renderer/types';
 import { getSettingsCache } from './database';
-import { streamCodexResponse } from './codex';
+import { runCodex } from './codex';
+import type { BrowserWindow } from 'electron';
 
 const SYSTEM_PROMPT = `You are Natively, a real-time AI assistant helping during meetings, interviews, and conversations.
 Use the attached screenshot as the current source of visual truth whenever one is available.
@@ -91,9 +92,8 @@ function buildPrompt(payload: AIPayload): string {
 
 export async function routeAIRequest(
   payload: AIPayload,
-  onChunk: (text: string) => void,
-  onComplete: () => void
-): Promise<{ provider: Settings['aiProvider']; prompt: string }> {
+  mainWindow: BrowserWindow
+): Promise<{ provider: Settings['aiProvider']; prompt: string; response: string }> {
   const settings = getSettingsCache();
   const transcriptContext = formatTranscriptContext(payload.transcript, settings.rollingContextSize);
   const prompt = `${SYSTEM_PROMPT}
@@ -102,6 +102,6 @@ ${transcriptContext}
 
 [USER REQUEST]
 ${buildPrompt(payload)}`;
-  await streamCodexResponse(prompt, payload.screenshot ?? undefined, onChunk, onComplete);
-  return { provider: settings.aiProvider, prompt };
+  const response = await runCodex(prompt, payload.screenshot ?? undefined, mainWindow);
+  return { provider: settings.aiProvider, prompt, response };
 }

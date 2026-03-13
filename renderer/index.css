@@ -97,6 +97,8 @@ button, textarea, input, select {
   flex-direction: column;
   gap: 10px;
   align-items: center;
+  height: fit-content;
+  overflow: visible;
 }
 
 .top-pill {

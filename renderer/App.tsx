@@ -387,6 +387,7 @@ export default function App() {
   const displayVideoRef = useRef<HTMLVideoElement | null>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const startupInitializedRef = useRef(false);
+  const overlayRootRef = useRef<HTMLDivElement | null>(null);
   const glassBodyRef = useRef<HTMLDivElement | null>(null);
   const resizeDebounceRef = useRef<number | null>(null);
   const audioControllerRef = useRef<AudioCaptureController | null>(null);
@@ -404,6 +405,18 @@ export default function App() {
     aiCharQueueRef.current = '';
     aiCompletePendingRef.current = false;
     aiErrorPendingRef.current = null;
+  };
+
+  const reportOverlayDimensions = () => {
+    const root = overlayRootRef.current;
+    if (!root) {
+      return;
+    }
+
+    void window.electronAPI.updateContentDimensions({
+      width: 720,
+      height: root.scrollHeight
+    });
   };
 
   const ensureAIDrain = () => {
@@ -456,6 +469,7 @@ export default function App() {
         next.push(createMessage('assistant', nextChunk));
         return next;
       });
+      window.requestAnimationFrame(() => reportOverlayDimensions());
     }, 10);
   };
 
@@ -683,12 +697,7 @@ export default function App() {
       }
 
       resizeDebounceRef.current = window.setTimeout(() => {
-        const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant' && message.content.trim());
-        const expanded = Boolean(isStreaming || latestAssistant);
-        void window.electronAPI.updateContentDimensions({
-          width: 720,
-          height: expanded ? 400 : 140
-        });
+        reportOverlayDimensions();
       }, 80);
     };
 
@@ -765,7 +774,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="overlay-column">
-        <div className="overlay-shell">
+        <div id="overlay-root" ref={overlayRootRef} className="overlay-shell">
           <TitleBar
             isRecording={isRecording}
             includeOverlayInScreenshots={settings.includeOverlayInScreenshots}
