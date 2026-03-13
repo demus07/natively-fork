@@ -60,6 +60,7 @@ export interface ElectronAPI {
   stopAudioCapture: () => Promise<void>;
   pushAudioChunk: (chunk: Uint8Array) => void;
   logDebug?: (payload: { level: 'log' | 'warn' | 'error'; message: string; data?: unknown }) => void;
+  onTranscriptInterim?: (callback: (text: string) => void) => () => void;
   onTranscriptUpdate: (callback: (payload: TranscriptEvent) => void) => () => void;
   onTranscriptStatus?: (callback: (payload: { status: string }) => void) => () => void;
   onTranscriptError?: (callback: (payload: { message: string }) => void) => () => void;

@@ -9,9 +9,16 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
   const bindListeners = () => {
     if (listenersBound) {
       transcriptService.removeAllListeners('transcript');
+      transcriptService.removeAllListeners('interim');
       transcriptService.removeAllListeners('error');
       transcriptService.removeAllListeners('status');
     }
+
+    transcriptService.on('interim', (text: string) => {
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.transcriptInterim, text);
+      }
+    });
 
     transcriptService.on('transcript', (text: string) => {
       if (!mainWindow.isDestroyed()) {
@@ -88,6 +95,7 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
     }
     transcriptService.stop();
     transcriptService.removeAllListeners('transcript');
+    transcriptService.removeAllListeners('interim');
     transcriptService.removeAllListeners('error');
     transcriptService.removeAllListeners('status');
     listenersBound = false;

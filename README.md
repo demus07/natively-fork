@@ -139,8 +139,9 @@ Current AI behavior:
 
 The transcript row is a rolling ticker:
 
-- receives live transcript updates from the local backend
-- dedupes repeated or incremental duplicate transcript segments
+- receives fast interim transcript updates plus final confirmed transcript updates from the local backend
+- interim text can appear dimmed before final confirmation
+- dedupes repeated or incremental duplicate transcript segments on the final path
 - keeps newest text visible by scrolling to the newest content
 - displays backend status text when transcript is still empty
 
@@ -156,6 +157,7 @@ At the current project state:
 - Codex streaming is real stdout streaming, not synthetic delayed chunking
 - microphone transcription works
 - transcript backend starts locally through Python
+- transcript supports a two-pass interim/final flow
 - current-session answer history remains scrollable
 - screenshot capture works
 - overlay visibility in screenshots is configurable from the capsule
@@ -283,7 +285,8 @@ Responsibilities:
 Responsibilities:
 
 - hold transcript string state
-- dedupe repeated transcript segments
+- hold interim transcript state
+- dedupe repeated transcript segments on final transcript updates
 - expose recording start/stop helpers
 
 [public/audioWorklet.js](/Users/sumedh/cluely-natively/public/audioWorklet.js)
@@ -300,7 +303,7 @@ Responsibilities:
 
 - receive renderer PCM chunks
 - start/stop transcript backend
-- forward transcript updates/status/errors to renderer
+- forward transcript interim/final updates plus status/errors to renderer
 
 [electron/services/localTranscript.ts](/Users/sumedh/cluely-natively/electron/services/localTranscript.ts)
 
@@ -312,9 +315,10 @@ Current responsibilities:
 
 - manage the local transcript service
 - buffer PCM chunks
-- flush PCM to temp WAV files
-- send WAV paths to Python server
-- read transcript text back
+- run a fast snapshot flush for interim transcript
+- run a full draining flush for final transcript
+- send `FAST:` and `FULL:` WAV paths to Python server
+- read interim and final transcript text back
 
 [scripts/transcribe_server.py](/Users/sumedh/cluely-natively/scripts/transcribe_server.py)
 
@@ -322,8 +326,8 @@ Responsibilities:
 
 - run persistent `faster-whisper`
 - load the model once
-- receive WAV file paths on stdin
-- emit transcript lines on stdout
+- receive `FAST:` and `FULL:` WAV file paths on stdin
+- emit `INTERIM:` and `FINAL:` transcript lines on stdout
 
 ## Screenshot Layer
 
@@ -447,9 +451,11 @@ Current audio flow:
 4. `public/audioWorklet.js` batches and converts PCM to Int16
 5. Renderer sends PCM via `pushAudioChunk`
 6. Main process receives chunks in `audioHandlers.ts`
-7. `localTranscript.ts` buffers chunks and writes WAV segments
-8. `scripts/transcribe_server.py` transcribes segments via `faster-whisper`
-9. Transcript text is emitted back to renderer
+7. `localTranscript.ts` keeps a rolling PCM buffer
+8. fast snapshot flushes produce interim transcript
+9. full draining flushes produce final transcript
+10. `scripts/transcribe_server.py` transcribes both passes via `faster-whisper`
+11. interim text is emitted first, then final text replaces it
 
 ## How Screen Capture Works
 

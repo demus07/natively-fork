@@ -15,6 +15,7 @@ const IPC_CHANNELS = {
   stopAudioCapture: 'stop-audio-capture',
   pushAudioChunk: 'push-audio-chunk',
   rendererDebugLog: 'renderer-debug-log',
+  transcriptInterim: 'transcript-interim',
   transcriptUpdate: 'transcript-update',
   transcriptStatus: 'transcript-status',
   transcriptError: 'transcript-error',
@@ -56,6 +57,11 @@ const electronAPI = {
     ) => callback(payload);
     ipcRenderer.on(IPC_CHANNELS.transcriptUpdate, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.transcriptUpdate, listener);
+  },
+  onTranscriptInterim: (callback: (text: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, text: string) => callback(text);
+    ipcRenderer.on(IPC_CHANNELS.transcriptInterim, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.transcriptInterim, listener);
   },
   onTranscriptStatus: (callback: (payload: { status: string }) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, payload: { status: string }) => callback(payload);

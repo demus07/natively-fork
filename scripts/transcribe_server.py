@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.ERROR)
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "turbo")
-LANGUAGE = os.environ.get("WHISPER_LANG", "en")
+LANGUAGE = os.environ.get("WHISPER_LANGUAGE", os.environ.get("WHISPER_LANG", "en"))
 COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE", "int8")
 DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 
@@ -79,10 +79,65 @@ def is_junk(text: str) -> bool:
     return False
 
 
+def transcribe_fast(wav_path: str, language: str):
+    segments, _ = model.transcribe(
+        wav_path,
+        language=language if language != 'auto' else None,
+        beam_size=1,
+        best_of=1,
+        vad_filter=True,
+        vad_parameters=dict(
+            min_silence_duration_ms=300,
+            speech_pad_ms=100,
+            min_speech_duration_ms=200,
+            threshold=0.5,
+        ),
+        condition_on_previous_text=False,
+        no_speech_threshold=0.6,
+    )
+    for segment in segments:
+        text = segment.text.strip()
+        if text and not is_hallucination(text) and not is_junk(text):
+            print(f'INTERIM:{text}', flush=True)
+
+
+def transcribe_full(wav_path: str, language: str):
+    segments, _ = model.transcribe(
+        wav_path,
+        language=language if language != 'auto' else None,
+        beam_size=5,
+        vad_filter=True,
+        vad_parameters=dict(
+            min_silence_duration_ms=500,
+            speech_pad_ms=100,
+            min_speech_duration_ms=250,
+            threshold=0.6,
+        ),
+        condition_on_previous_text=False,
+        no_speech_threshold=0.6,
+        log_prob_threshold=-1.0,
+        compression_ratio_threshold=2.4,
+    )
+    for segment in segments:
+        text = segment.text.strip()
+        if text and not is_hallucination(text) and not is_junk(text):
+            print(f'FINAL:{text}', flush=True)
+
+
 for raw_line in sys.stdin:
-    wav_path = raw_line.strip()
-    if not wav_path:
+    line = raw_line.strip()
+    if not line:
         continue
+
+    if line.startswith('FAST:'):
+        wav_path = line[5:]
+        mode = 'FAST'
+    elif line.startswith('FULL:'):
+        wav_path = line[5:]
+        mode = 'FULL'
+    else:
+        wav_path = line
+        mode = 'FULL'
 
     if not os.path.exists(wav_path):
         sys.stderr.write(f"[transcribe_server] File not found: {wav_path}\n")
@@ -90,35 +145,10 @@ for raw_line in sys.stdin:
         continue
 
     try:
-        segments, _ = model.transcribe(
-            wav_path,
-            language=LANGUAGE if LANGUAGE != "auto" else None,
-            vad_filter=True,
-            vad_parameters=dict(
-                min_silence_duration_ms=500,
-                speech_pad_ms=100,
-                min_speech_duration_ms=250,
-                threshold=0.6,
-            ),
-            condition_on_previous_text=False,
-            no_speech_threshold=0.6,
-            log_prob_threshold=-1.0,
-            compression_ratio_threshold=2.4,
-        )
-
-        texts = []
-        for segment in segments:
-            text = segment.text.strip()
-            if text and not is_hallucination(text) and not is_junk(text):
-                texts.append(text)
-
-        if texts:
-            result = " ".join(texts)
-            print(result, flush=True)
-            sys.stdout.flush()
-            sys.stderr.write(f"[transcribe_server] Transcribed: {result[:80]}\n")
-            sys.stderr.flush()
-
+        if mode == 'FAST':
+            transcribe_fast(wav_path, LANGUAGE)
+        else:
+            transcribe_full(wav_path, LANGUAGE)
     except Exception as error:
         sys.stderr.write(f"[transcribe_server] Transcription error: {error}\n")
         sys.stderr.flush()

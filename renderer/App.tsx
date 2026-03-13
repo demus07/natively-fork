@@ -377,7 +377,7 @@ export default function App() {
   });
 
   const aiMutation = useAI();
-  const { transcript, isRecording, startRecording, stopRecording, setTranscript } = useAudio();
+  const { transcript, interimText, isRecording, startRecording, stopRecording, setTranscript } = useAudio();
   const { captureFull } = useScreenshot();
   const { settings, setSettings, saveSettings } = useSettings();
 
@@ -793,6 +793,7 @@ export default function App() {
             />
             <TranscriptPanel
               transcript={transcript}
+              interimText={interimText}
               isRecording={isRecording}
               statusText={transcriptSeenRef.current ? undefined : `Whisper: ${whisperLabel}`}
             />

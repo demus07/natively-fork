@@ -8,7 +8,9 @@ import { getSettingsCache } from './database';
 
 const SAMPLE_RATE = 16000;
 const BYTES_PER_SAMPLE = 2;
-const FLUSH_INTERVAL_MS = 8000;
+const FAST_FLUSH_MS = 1500;
+const FULL_FLUSH_MS = 5000;
+const MIN_FAST_BUFFER_MS = 800;
 const MIN_CHUNK_MS = 5000;
 const MAX_CHUNK_MS = 8000;
 const SILENCE_THRESHOLD = 0.01;
@@ -41,9 +43,7 @@ function bufferToInt16View(chunk: Buffer): Int16Array {
 }
 
 function computeRms(input: Buffer | Int16Array): number {
-  const samples =
-    input instanceof Int16Array ? input : bufferToInt16View(input);
-
+  const samples = input instanceof Int16Array ? input : bufferToInt16View(input);
   if (samples.length === 0) {
     return 0;
   }
@@ -64,6 +64,11 @@ function normalizeModelName(model: string): string {
   return model.endsWith('.en') ? model.slice(0, -3) : model;
 }
 
+type InflightRecord = {
+  path: string;
+  mode: 'FAST' | 'FULL';
+};
+
 export class LocalTranscriptService extends EventEmitter {
   private serverProc: ChildProcess | null = null;
 
@@ -79,13 +84,15 @@ export class LocalTranscriptService extends EventEmitter {
 
   private totalPcmBytes = 0;
 
-  private flushTimer: NodeJS.Timeout | null = null;
+  private fastFlushTimer: NodeJS.Timeout | null = null;
+
+  private fullFlushTimer: NodeJS.Timeout | null = null;
 
   private chunkCounter = 0;
 
-  private inflightPaths: string[] = [];
+  private inflight: InflightRecord[] = [];
 
-  private pendingPaths: string[] = [];
+  private pending: InflightRecord[] = [];
 
   private lastTranscript = '';
 
@@ -109,12 +116,13 @@ export class LocalTranscriptService extends EventEmitter {
     this.serverError = '';
     this.pcmChunks = [];
     this.totalPcmBytes = 0;
-    this.pendingPaths = [];
-    this.inflightPaths = [];
+    this.pending = [];
+    this.inflight = [];
     this.silenceStart = null;
 
     this.spawnServer();
-    this.scheduleFlushTimer();
+    this.scheduleFastFlush();
+    this.scheduleFullFlush();
 
     console.log('[TRANSCRIPT] LocalTranscriptService started');
     this.emit('status', 'starting');
@@ -123,9 +131,15 @@ export class LocalTranscriptService extends EventEmitter {
   stop(): void {
     this.running = false;
     this.serverReady = false;
-    if (this.flushTimer) {
-      clearTimeout(this.flushTimer);
-      this.flushTimer = null;
+
+    if (this.fastFlushTimer) {
+      clearTimeout(this.fastFlushTimer);
+      this.fastFlushTimer = null;
+    }
+
+    if (this.fullFlushTimer) {
+      clearTimeout(this.fullFlushTimer);
+      this.fullFlushTimer = null;
     }
 
     if (this.serverProc) {
@@ -138,9 +152,9 @@ export class LocalTranscriptService extends EventEmitter {
       this.serverProc = null;
     }
 
-    for (const filePath of [...this.pendingPaths, ...this.inflightPaths]) {
+    for (const item of [...this.pending, ...this.inflight]) {
       try {
-        fs.unlinkSync(filePath);
+        fs.unlinkSync(item.path);
       } catch {
         // ignore cleanup errors
       }
@@ -148,8 +162,8 @@ export class LocalTranscriptService extends EventEmitter {
 
     this.pcmChunks = [];
     this.totalPcmBytes = 0;
-    this.pendingPaths = [];
-    this.inflightPaths = [];
+    this.pending = [];
+    this.inflight = [];
     this.silenceStart = null;
     console.log('[TRANSCRIPT] Stopped');
     this.emit('status', 'stopped');
@@ -165,7 +179,7 @@ export class LocalTranscriptService extends EventEmitter {
 
     const now = Date.now();
     const chunkRms = computeRms(chunk);
-    const bufferDuration = pcmDurationMs(this.totalPcmBytes);
+    const bufferDuration = this.getBufferDurationMs();
 
     if (chunkRms < SILENCE_THRESHOLD) {
       if (this.silenceStart === null) {
@@ -177,8 +191,7 @@ export class LocalTranscriptService extends EventEmitter {
         now - this.silenceStart >= SILENCE_FLUSH_MS &&
         bufferDuration >= MIN_CHUNK_MS
       ) {
-        this.flush('silence');
-        this.silenceStart = null;
+        this.onSilenceDetected();
         return;
       }
     } else {
@@ -186,7 +199,7 @@ export class LocalTranscriptService extends EventEmitter {
     }
 
     if (bufferDuration >= MAX_CHUNK_MS) {
-      this.flush('max-window');
+      this.flushFull('max-window');
     }
   }
 
@@ -204,6 +217,10 @@ export class LocalTranscriptService extends EventEmitter {
 
   getLastTranscript(): string {
     return this.lastTranscript;
+  }
+
+  private getBufferDurationMs(): number {
+    return pcmDurationMs(this.totalPcmBytes);
   }
 
   private spawnServer(): void {
@@ -238,7 +255,7 @@ export class LocalTranscriptService extends EventEmitter {
       env: {
         ...process.env,
         WHISPER_MODEL: whisperModel,
-        WHISPER_LANG: this.language,
+        WHISPER_LANGUAGE: this.language,
         WHISPER_COMPUTE: 'int8',
         WHISPER_DEVICE: 'cpu',
         PYTHONUNBUFFERED: '1'
@@ -261,10 +278,10 @@ export class LocalTranscriptService extends EventEmitter {
           console.log('[TRANSCRIPT] faster-whisper server is ready');
           this.serverReady = true;
           this.emit('status', 'running');
-          const pending = [...this.pendingPaths];
-          this.pendingPaths = [];
-          for (const pendingPath of pending) {
-            this.sendPathToServer(pendingPath);
+          const pending = [...this.pending];
+          this.pending = [];
+          for (const item of pending) {
+            this.sendToServer(item);
           }
           continue;
         }
@@ -274,7 +291,6 @@ export class LocalTranscriptService extends EventEmitter {
           this.serverError = message;
           this.emit('status', `error: ${message}`);
           this.emit('error', new Error(message));
-          this.cleanupOldestInflight();
           continue;
         }
 
@@ -283,11 +299,26 @@ export class LocalTranscriptService extends EventEmitter {
           continue;
         }
 
-        this.lastTranscript = trimmed;
-        console.log('[TRANSCRIPT]', trimmed);
-        this.emit('transcript', trimmed);
-        this.emit('status', 'running');
-        this.cleanupOldestInflight();
+        if (trimmed.startsWith('INTERIM:')) {
+          const text = trimmed.slice(8).trim();
+          if (text) {
+            this.emit('interim', text);
+          }
+          this.cleanupOldestInflight('FAST');
+          continue;
+        }
+
+        if (trimmed.startsWith('FINAL:')) {
+          const text = trimmed.slice(6).trim();
+          if (text) {
+            this.lastTranscript = text;
+            console.log('[TRANSCRIPT]', text);
+            this.emit('transcript', text);
+            this.emit('status', 'running');
+          }
+          this.cleanupOldestInflight('FULL');
+          continue;
+        }
       }
     });
 
@@ -318,27 +349,76 @@ export class LocalTranscriptService extends EventEmitter {
     });
   }
 
-  private scheduleFlushTimer(): void {
-    if (!this.running) {
+  private scheduleFastFlush(): void {
+    if (!this.running || this.fastFlushTimer) {
       return;
     }
 
-    this.flushTimer = setTimeout(() => {
-      if (pcmDurationMs(this.totalPcmBytes) >= MIN_CHUNK_MS) {
-        this.flush('timer');
+    this.fastFlushTimer = setTimeout(() => {
+      this.fastFlushTimer = null;
+      const bufferDuration = this.getBufferDurationMs();
+      if (bufferDuration >= MIN_FAST_BUFFER_MS) {
+        const snapshot = this.writeBufferSnapshot();
+        if (snapshot) {
+          this.sendToServer({ path: snapshot, mode: 'FAST' });
+        }
       }
-      this.scheduleFlushTimer();
-    }, FLUSH_INTERVAL_MS);
+      this.scheduleFastFlush();
+    }, FAST_FLUSH_MS);
   }
 
-  private flush(reason: string): void {
-    if (this.pcmChunks.length === 0) {
+  private scheduleFullFlush(): void {
+    if (!this.running || this.fullFlushTimer) {
       return;
     }
 
-    const durationMs = pcmDurationMs(this.totalPcmBytes);
+    this.fullFlushTimer = setTimeout(() => {
+      this.fullFlushTimer = null;
+      if (this.getBufferDurationMs() >= MIN_CHUNK_MS) {
+        this.flushFull('timer');
+      }
+      this.scheduleFullFlush();
+    }, FULL_FLUSH_MS);
+  }
+
+  private onSilenceDetected(): void {
+    if (this.fullFlushTimer) {
+      clearTimeout(this.fullFlushTimer);
+      this.fullFlushTimer = null;
+    }
+    this.flushFull('silence');
+    this.scheduleFullFlush();
+  }
+
+  private writeBufferSnapshot(): string | null {
+    if (this.pcmChunks.length === 0) {
+      return null;
+    }
+
+    const snapshot = Buffer.concat(this.pcmChunks);
+    const rms = computeRms(snapshot);
+    if (rms < SILENCE_THRESHOLD) {
+      return null;
+    }
+
+    const tmpPath = path.join(os.tmpdir(), `natively_fast_${Date.now()}_${++this.chunkCounter}.wav`);
+    try {
+      writeWav(tmpPath, snapshot);
+      return tmpPath;
+    } catch (error) {
+      console.error('[TRANSCRIPT] Failed to write FAST WAV file:', error);
+      return null;
+    }
+  }
+
+  private drainBufferToWav(): string | null {
+    if (this.pcmChunks.length === 0) {
+      return null;
+    }
+
+    const durationMs = this.getBufferDurationMs();
     if (durationMs < MIN_CHUNK_MS) {
-      return;
+      return null;
     }
 
     const merged = Buffer.concat(this.pcmChunks);
@@ -347,47 +427,54 @@ export class LocalTranscriptService extends EventEmitter {
     this.silenceStart = null;
 
     const rms = computeRms(merged);
-    console.log(
-      `[TRANSCRIPT] Flush ${reason}: ${(durationMs / 1000).toFixed(2)}s rms=${rms.toFixed(5)} ready=${this.serverReady}`
-    );
-
     if (rms < SILENCE_THRESHOLD) {
-      return;
+      return null;
     }
 
-    const tmpPath = path.join(os.tmpdir(), `natively_audio_${Date.now()}_${++this.chunkCounter}.wav`);
+    const tmpPath = path.join(os.tmpdir(), `natively_full_${Date.now()}_${++this.chunkCounter}.wav`);
     try {
       writeWav(tmpPath, merged);
+      return tmpPath;
     } catch (error) {
-      console.error('[TRANSCRIPT] Failed to write WAV file:', error);
+      console.error('[TRANSCRIPT] Failed to write FULL WAV file:', error);
+      return null;
+    }
+  }
+
+  private flushFull(reason: string): void {
+    const wavPath = this.drainBufferToWav();
+    if (!wavPath) {
       return;
     }
 
-    this.sendPathToServer(tmpPath);
+    console.log(`[TRANSCRIPT] FULL flush ${reason}: ${wavPath}`);
+    this.sendToServer({ path: wavPath, mode: 'FULL' });
   }
 
-  private sendPathToServer(wavPath: string): void {
+  private sendToServer(item: InflightRecord): void {
     if (!this.serverReady || !this.serverProc?.stdin) {
-      this.pendingPaths.push(wavPath);
+      this.pending.push(item);
       return;
     }
 
     try {
-      this.inflightPaths.push(wavPath);
-      this.serverProc.stdin.write(`${wavPath}\n`);
+      this.inflight.push(item);
+      this.serverProc.stdin.write(`${item.mode}:${item.path}\n`);
     } catch (error) {
       console.error('[TRANSCRIPT] Failed to write to server stdin:', error);
-      this.pendingPaths.push(wavPath);
+      this.pending.push(item);
     }
   }
 
-  private cleanupOldestInflight(): void {
-    const filePath = this.inflightPaths.shift();
-    if (!filePath) {
+  private cleanupOldestInflight(mode: 'FAST' | 'FULL'): void {
+    const index = this.inflight.findIndex((item) => item.mode === mode);
+    if (index === -1) {
       return;
     }
+
+    const [item] = this.inflight.splice(index, 1);
     try {
-      fs.unlinkSync(filePath);
+      fs.unlinkSync(item.path);
     } catch {
       // ignore cleanup errors
     }

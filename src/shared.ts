@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   stopAudioCapture: 'stop-audio-capture',
   pushAudioChunk: 'push-audio-chunk',
   rendererDebugLog: 'renderer-debug-log',
+  transcriptInterim: 'transcript-interim',
   transcriptUpdate: 'transcript-update',
   transcriptStatus: 'transcript-status',
   transcriptError: 'transcript-error',

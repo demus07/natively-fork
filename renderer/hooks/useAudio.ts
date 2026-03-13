@@ -62,10 +62,15 @@ function isDuplicateSegment(existingTranscript: string, incoming: string): boole
 
 export function useAudio() {
   const [transcript, setTranscript] = useState('');
+  const [interimText, setInterimText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
 
   useEffect(() => {
     let lastSegment = '';
+    const unsubscribeInterim = window.electronAPI.onTranscriptInterim?.((text: string) => {
+      setInterimText(text);
+    });
+
     const unsubscribe = window.electronAPI.onTranscriptUpdate((payload) => {
       const cleaned = payload.text.trim();
       if (!cleaned) {
@@ -101,9 +106,13 @@ export function useAudio() {
         lastSegment = cleaned;
         return [...lines, cleaned].join('\n').slice(-4000);
       });
+      setInterimText('');
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribeInterim?.();
+      unsubscribe();
+    };
   }, []);
 
   const startRecording = async () => {
@@ -125,5 +134,5 @@ export function useAudio() {
     await startRecording();
   };
 
-  return { transcript, isRecording, toggleRecording, startRecording, stopRecording, setTranscript };
+  return { transcript, interimText, isRecording, toggleRecording, startRecording, stopRecording, setTranscript };
 }
