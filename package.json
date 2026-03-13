@@ -1,0 +1,72 @@
+{
+  "name": "natively",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Privacy-first Electron AI assistant for real-time meetings and interviews.",
+  "main": "dist/electron/main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node scripts/dev.mjs",
+    "build": "tsc -p tsconfig.node.json && tsc && vite build",
+    "dist": "npm run build && electron-builder",
+    "build:native": "cd native-module && napi build --platform --release",
+    "postinstall": "electron-builder install-app-deps && npm run build:native || echo \"Rust toolchain unavailable; native audio module not built.\""
+  },
+  "dependencies": {
+    "@google-cloud/speech": "^6.6.1",
+    "@google/generative-ai": "^0.21.0",
+    "@tanstack/react-query": "^5.66.9",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "better-sqlite3": "^12.6.2",
+    "electron-is-dev": "^3.0.1",
+    "groq-sdk": "^0.16.0",
+    "lucide-react": "^0.511.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.3",
+    "react-syntax-highlighter": "^16.1.1"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^2.18.4",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.13.10",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.1.2",
+    "electron": "^33.3.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.3",
+    "vite": "^5.4.14",
+    "vite-plugin-electron": "^0.28.8",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "com.natively.app",
+    "productName": "Natively",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "files": [
+      "dist/**/*",
+      "native-module/index.js",
+      "native-module/*.node"
+    ],
+    "extraResources": [
+      {
+        "from": "scripts/",
+        "to": "scripts/",
+        "filter": [
+          "**/*.py"
+        ]
+      }
+    ]
+  }
+}

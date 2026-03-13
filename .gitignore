@@ -1,0 +1,6 @@
+node_modules
+dist
+.env
+*.log
+native-module/target
+native-module/index.node
