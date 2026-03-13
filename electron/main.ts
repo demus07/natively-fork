@@ -25,6 +25,7 @@ import {
   loadSettingsCache,
   saveAllSettings
 } from './services/database';
+import { setCodexWindow } from './services/codex';
 
 let mainWindow: BrowserWindow | null = null;
 const sessionId = `session-${Date.now()}`;
@@ -121,6 +122,7 @@ async function bootstrap(): Promise<void> {
   loadSettingsCache();
 
   mainWindow = createMainWindow();
+  setCodexWindow(mainWindow);
   initWindowHandlers(mainWindow);
   initAudioHandlers(mainWindow);
   const screenshots = initScreenshotHandlers(mainWindow);

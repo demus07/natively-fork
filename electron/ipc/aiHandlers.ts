@@ -20,13 +20,16 @@ export function initAIHandlers(
         payload.type === 'custom' ? payload.userMessage?.trim() || 'Custom prompt' : payload.type;
       saveMessage('user', promptSource, sessionId);
 
-      let screenshot = payload.screenshot;
+      let screenshot = payload.screenshot ?? null;
       if (!screenshot) {
-        try {
-          screenshot = await captureFullScreen();
-        } catch (error) {
+        const screenshotPromise = captureFullScreen().catch((error) => {
           console.warn('[SCREEN] Screenshot unavailable — sending text-only request', error);
-        }
+          return null;
+        });
+        screenshot = await Promise.race([
+          screenshotPromise,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 500))
+        ]);
       }
 
       assistantResponse = (

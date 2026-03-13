@@ -92,7 +92,7 @@ function buildPrompt(payload: AIPayload): string {
 
 export async function routeAIRequest(
   payload: AIPayload,
-  mainWindow: BrowserWindow
+  _mainWindow: BrowserWindow
 ): Promise<{ provider: Settings['aiProvider']; prompt: string; response: string }> {
   const settings = getSettingsCache();
   const transcriptContext = formatTranscriptContext(payload.transcript, settings.rollingContextSize);
@@ -102,6 +102,6 @@ ${transcriptContext}
 
 [USER REQUEST]
 ${buildPrompt(payload)}`;
-  const response = await runCodex(prompt, payload.screenshot ?? undefined, mainWindow);
+  const response = await runCodex(prompt, payload.screenshot ?? null, settings.codexExtraFlags);
   return { provider: settings.aiProvider, prompt, response };
 }

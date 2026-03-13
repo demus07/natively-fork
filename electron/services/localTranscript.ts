@@ -4,13 +4,15 @@ import path from 'node:path';
 import os from 'node:os';
 import fs from 'node:fs';
 import { app } from 'electron';
+import { getSettingsCache } from './database';
 
 const SAMPLE_RATE = 16000;
 const BYTES_PER_SAMPLE = 2;
-const FLUSH_INTERVAL_MS = 800;
-const MAX_SAMPLES = 16000 * 3;
-const SILENCE_RMS_THRESHOLD = 0.003;
-const MIN_CHUNK_MS = 250;
+const FLUSH_INTERVAL_MS = 8000;
+const MIN_CHUNK_MS = 5000;
+const MAX_CHUNK_MS = 8000;
+const SILENCE_THRESHOLD = 0.01;
+const SILENCE_FLUSH_MS = 800;
 
 function writeWav(filePath: string, pcmInt16: Buffer): void {
   const header = Buffer.alloc(44);
@@ -30,23 +32,36 @@ function writeWav(filePath: string, pcmInt16: Buffer): void {
   fs.writeFileSync(filePath, Buffer.concat([header, pcmInt16]));
 }
 
-function computeRms(pcmInt16: Buffer): number {
-  const numSamples = pcmInt16.length / 2;
-  if (numSamples === 0) {
+function pcmDurationMs(pcmBytes: number): number {
+  return (pcmBytes / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
+}
+
+function bufferToInt16View(chunk: Buffer): Int16Array {
+  return new Int16Array(chunk.buffer, chunk.byteOffset, Math.floor(chunk.byteLength / 2));
+}
+
+function computeRms(input: Buffer | Int16Array): number {
+  const samples =
+    input instanceof Int16Array ? input : bufferToInt16View(input);
+
+  if (samples.length === 0) {
     return 0;
   }
 
-  let sumSquares = 0;
-  for (let i = 0; i < pcmInt16.length; i += 2) {
-    const sample = pcmInt16.readInt16LE(i) / 32768;
-    sumSquares += sample * sample;
+  let sum = 0;
+  for (let i = 0; i < samples.length; i += 1) {
+    const sample = samples[i] / 32768;
+    sum += sample * sample;
   }
 
-  return Math.sqrt(sumSquares / numSamples);
+  return Math.sqrt(sum / samples.length);
 }
 
-function pcmDurationMs(pcmBytes: number): number {
-  return (pcmBytes / (SAMPLE_RATE * BYTES_PER_SAMPLE)) * 1000;
+function normalizeModelName(model: string): string {
+  if (!model) {
+    return 'turbo';
+  }
+  return model.endsWith('.en') ? model.slice(0, -3) : model;
 }
 
 export class LocalTranscriptService extends EventEmitter {
@@ -74,6 +89,8 @@ export class LocalTranscriptService extends EventEmitter {
 
   private lastTranscript = '';
 
+  private silenceStart: number | null = null;
+
   setLanguage(lang: string): void {
     this.language = lang;
     if (this.running) {
@@ -94,6 +111,7 @@ export class LocalTranscriptService extends EventEmitter {
     this.totalPcmBytes = 0;
     this.pendingPaths = [];
     this.inflightPaths = [];
+    this.silenceStart = null;
 
     this.spawnServer();
     this.scheduleFlushTimer();
@@ -132,6 +150,7 @@ export class LocalTranscriptService extends EventEmitter {
     this.totalPcmBytes = 0;
     this.pendingPaths = [];
     this.inflightPaths = [];
+    this.silenceStart = null;
     console.log('[TRANSCRIPT] Stopped');
     this.emit('status', 'stopped');
   }
@@ -144,17 +163,29 @@ export class LocalTranscriptService extends EventEmitter {
     this.pcmChunks.push(chunk);
     this.totalPcmBytes += chunk.length;
 
-    const durationMs = pcmDurationMs(this.totalPcmBytes);
-    const merged = Buffer.concat(this.pcmChunks);
-    const rms = computeRms(merged);
+    const now = Date.now();
+    const chunkRms = computeRms(chunk);
+    const bufferDuration = pcmDurationMs(this.totalPcmBytes);
 
-    if (durationMs >= MIN_CHUNK_MS && rms <= SILENCE_RMS_THRESHOLD && durationMs >= 600) {
-      this.flush('silence');
-      return;
+    if (chunkRms < SILENCE_THRESHOLD) {
+      if (this.silenceStart === null) {
+        this.silenceStart = now;
+      }
+
+      if (
+        this.silenceStart !== null &&
+        now - this.silenceStart >= SILENCE_FLUSH_MS &&
+        bufferDuration >= MIN_CHUNK_MS
+      ) {
+        this.flush('silence');
+        this.silenceStart = null;
+        return;
+      }
+    } else {
+      this.silenceStart = null;
     }
 
-    const maxBytes = MAX_SAMPLES * BYTES_PER_SAMPLE;
-    if (this.totalPcmBytes >= maxBytes) {
+    if (bufferDuration >= MAX_CHUNK_MS) {
       this.flush('max-window');
     }
   }
@@ -197,13 +228,16 @@ export class LocalTranscriptService extends EventEmitter {
       return;
     }
 
+    const settings = getSettingsCache();
+    const whisperModel = normalizeModelName(settings.whisperModel || 'turbo');
+
     console.log('[TRANSCRIPT] Spawning', pythonBin, scriptPath);
 
     this.serverProc = spawn(pythonBin, [scriptPath], {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        WHISPER_MODEL: 'base.en',
+        WHISPER_MODEL: whisperModel,
         WHISPER_LANG: this.language,
         WHISPER_COMPUTE: 'int8',
         WHISPER_DEVICE: 'cpu',
@@ -241,6 +275,11 @@ export class LocalTranscriptService extends EventEmitter {
           this.emit('status', `error: ${message}`);
           this.emit('error', new Error(message));
           this.cleanupOldestInflight();
+          continue;
+        }
+
+        if (trimmed.startsWith('[transcribe_server] loaded model:')) {
+          console.log('[TRANSCRIPT]', trimmed);
           continue;
         }
 
@@ -285,7 +324,7 @@ export class LocalTranscriptService extends EventEmitter {
     }
 
     this.flushTimer = setTimeout(() => {
-      if (this.totalPcmBytes > 0) {
+      if (pcmDurationMs(this.totalPcmBytes) >= MIN_CHUNK_MS) {
         this.flush('timer');
       }
       this.scheduleFlushTimer();
@@ -305,13 +344,14 @@ export class LocalTranscriptService extends EventEmitter {
     const merged = Buffer.concat(this.pcmChunks);
     this.pcmChunks = [];
     this.totalPcmBytes = 0;
+    this.silenceStart = null;
 
     const rms = computeRms(merged);
     console.log(
       `[TRANSCRIPT] Flush ${reason}: ${(durationMs / 1000).toFixed(2)}s rms=${rms.toFixed(5)} ready=${this.serverReady}`
     );
 
-    if (rms <= SILENCE_RMS_THRESHOLD) {
+    if (rms < SILENCE_THRESHOLD) {
       return;
     }
 

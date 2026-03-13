@@ -6,12 +6,13 @@ Receives WAV paths on stdin, emits one transcript line per WAV on stdout.
 
 import logging
 import os
+import re
 import sys
 
 logging.basicConfig(level=logging.ERROR)
 logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
-MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base.en")
+MODEL_SIZE = os.environ.get("WHISPER_MODEL", "turbo")
 LANGUAGE = os.environ.get("WHISPER_LANG", "en")
 COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE", "int8")
 DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
@@ -36,6 +37,7 @@ try:
     )
     sys.stderr.write("[transcribe_server] Model loaded successfully\n")
     sys.stderr.flush()
+    print(f"[transcribe_server] loaded model: {MODEL_SIZE}", flush=True)
 except Exception as error:
     sys.stderr.write(f"[transcribe_server] ERROR loading model: {error}\n")
     sys.stderr.flush()
@@ -52,10 +54,29 @@ HALLUCINATIONS = {
     "subtitles by", "transcribed by", "captions by",
 }
 
+JUNK_PATTERNS = [
+    re.compile(r'^\[.*?\]$'),
+    re.compile(r'^\(.*?\)$'),
+    re.compile(r'^[♪♫\s]+$'),
+    re.compile(r'^\.+$'),
+    re.compile(r'^[\s\W]{1,3}$'),
+    re.compile(r'^(um+|uh+|ah+|er+|mm+)[\.,\s]*$', re.IGNORECASE),
+]
+
 
 def is_hallucination(text: str) -> bool:
     cleaned = text.strip().lower().rstrip(".")
     return cleaned in HALLUCINATIONS or len(cleaned) <= 2
+
+
+def is_junk(text: str) -> bool:
+    text = text.strip()
+    if len(text) < 3:
+        return True
+    for pattern in JUNK_PATTERNS:
+        if pattern.match(text):
+            return True
+    return False
 
 
 for raw_line in sys.stdin:
@@ -71,19 +92,24 @@ for raw_line in sys.stdin:
     try:
         segments, _ = model.transcribe(
             wav_path,
-            language=LANGUAGE,
-            beam_size=1,
-            best_of=1,
-            temperature=0.0,
+            language=LANGUAGE if LANGUAGE != "auto" else None,
             vad_filter=True,
-            vad_parameters={"min_silence_duration_ms": 300},
+            vad_parameters=dict(
+                min_silence_duration_ms=500,
+                speech_pad_ms=100,
+                min_speech_duration_ms=250,
+                threshold=0.6,
+            ),
             condition_on_previous_text=False,
+            no_speech_threshold=0.6,
+            log_prob_threshold=-1.0,
+            compression_ratio_threshold=2.4,
         )
 
         texts = []
         for segment in segments:
             text = segment.text.strip()
-            if text and not is_hallucination(text):
+            if text and not is_hallucination(text) and not is_junk(text):
                 texts.append(text)
 
         if texts:
