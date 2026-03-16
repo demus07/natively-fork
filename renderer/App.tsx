@@ -8,6 +8,7 @@ import { useAI } from './hooks/useAI';
 import { useAudio } from './hooks/useAudio';
 import { useScreenshot } from './hooks/useScreenshot';
 import { useSettings } from './hooks/useSettings';
+import { resetTranscriptStore, useTranscript } from './hooks/useTranscript';
 import type { ActionType, AIRequestType, Message } from './types';
 
 type StreamState = 'idle' | 'active' | 'not-found' | 'error';
@@ -377,7 +378,8 @@ export default function App() {
   });
 
   const aiMutation = useAI();
-  const { transcript, interimText, isRecording, startRecording, stopRecording, setTranscript } = useAudio();
+  const { isRecording, startRecording, stopRecording } = useAudio();
+  const { finalLines, interimText } = useTranscript();
   const { captureFull } = useScreenshot();
   const { settings, setSettings, saveSettings } = useSettings();
 
@@ -474,6 +476,7 @@ export default function App() {
   };
 
   useEffect(() => {
+    const transcript = finalLines.join('\n');
     transcriptRef.current = transcript;
     if (transcript.trim()) {
       transcriptSeenRef.current = true;
@@ -482,7 +485,7 @@ export default function App() {
         whisperPreview: transcript.trim().split('\n').at(-1)?.slice(0, 60) ?? ''
       });
     }
-  }, [transcript]);
+  }, [finalLines]);
 
   useEffect(() => {
     if (typeof settings?.windowOpacity === 'number') {
@@ -500,7 +503,7 @@ export default function App() {
 
     void window.electronAPI.clearHistory().then(() => {
       setMessages([]);
-      setTranscript('');
+      resetTranscriptStore();
       transcriptRef.current = '';
       transcriptSeenRef.current = false;
       updateDiagnostic(setDiagnostic, {
@@ -508,7 +511,7 @@ export default function App() {
         whisperStatus: 'waiting'
       });
     });
-  }, [setSettings, setTranscript]);
+  }, [setSettings]);
 
   useEffect(() => {
     const offTranscriptStatus = window.electronAPI.onTranscriptStatus?.((payload) => {
@@ -711,7 +714,7 @@ export default function App() {
         window.clearTimeout(resizeDebounceRef.current);
       }
     };
-  }, [messages, isStreaming, settingsOpen, transcript, showDiagnostics]);
+  }, [messages, isStreaming, settingsOpen, finalLines, interimText, showDiagnostics]);
 
   const sendAI = async (payload: { type: AIRequestType; userMessage?: string }) => {
     await aiMutation.mutateAsync({
@@ -791,12 +794,7 @@ export default function App() {
               isStreaming={isStreaming}
               activeAction={activeAction}
             />
-            <TranscriptPanel
-              transcript={transcript}
-              interimText={interimText}
-              isRecording={isRecording}
-              statusText={transcriptSeenRef.current ? undefined : `Whisper: ${whisperLabel}`}
-            />
+            <TranscriptPanel />
           </div>
           {showDiagnostics ? (
             <div className="diagnostics-strip">

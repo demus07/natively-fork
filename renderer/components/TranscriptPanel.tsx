@@ -1,35 +1,40 @@
 import { useEffect, useRef } from 'react';
+import { useTranscript } from '../hooks/useTranscript';
 
-interface TranscriptPanelProps {
-  transcript: string;
-  interimText?: string;
-  isRecording: boolean;
-  statusText?: string;
-}
-
-export default function TranscriptPanel({ transcript, interimText, isRecording, statusText }: TranscriptPanelProps) {
-  const lines = transcript.split('\n').map((line) => line.trim()).filter(Boolean);
+export default function TranscriptPanel() {
+  const { finalLines, interimText } = useTranscript();
   const scrollRef = useRef<HTMLDivElement>(null);
-  const rollingText = lines.slice(-20).join('   ·   ');
-  const latest = rollingText || statusText || 'Waiting for live transcript';
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
     }
-  }, [transcript, interimText]);
+  }, [finalLines, interimText]);
 
   return (
-    <div className="transcript-panel">
-      <div ref={scrollRef} className="transcript-inline">
-        <span className={`transcript-live-dot ${isRecording ? 'transcript-live-dot-active' : ''}`} />
-        <div className="ticker-window">
-          <span className="transcript-inline-text">
-            <span>{latest}</span>
-            {interimText ? <span style={{ opacity: 0.45 }}>{` ${interimText}`}</span> : null}
-          </span>
-        </div>
-      </div>
+    <div
+      ref={scrollRef}
+      style={{
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        whiteSpace: 'nowrap',
+        width: '100%'
+      }}
+      className="transcript-panel [&::-webkit-scrollbar]:hidden"
+    >
+      {finalLines.length === 0 && !interimText ? (
+        <span className="transcript-inline-text">Waiting for live transcript</span>
+      ) : null}
+      {finalLines.map((line, index) => (
+        <span key={`${index}-${line.slice(0, 16)}`} className="transcript-inline-text">
+          {line}{' '}
+        </span>
+      ))}
+      {interimText ? (
+        <span className="transcript-inline-text" style={{ opacity: 0.6, fontStyle: 'italic' }}>
+          {interimText}
+        </span>
+      ) : null}
     </div>
   );
 }
