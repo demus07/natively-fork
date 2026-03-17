@@ -3,7 +3,7 @@ class PCMExtractorProcessor extends AudioWorkletProcessor {
     super();
     this._buffer = [];
     this._sampleCount = 0;
-    this._flushEvery = 3200;
+    this._flushEvery = 800;
   }
 
   process(inputs) {

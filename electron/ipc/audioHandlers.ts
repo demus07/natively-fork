@@ -4,6 +4,7 @@ import { transcriptService } from '../services/localTranscript';
 
 let pendingStartTimer: NodeJS.Timeout | null = null;
 let listenersBound = false;
+let handlersRegistered = false;
 
 export function initAudioHandlers(mainWindow: BrowserWindow): void {
   const bindListeners = () => {
@@ -48,64 +49,67 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
     listenersBound = true;
   };
 
-  ipcMain.handle(IPC_CHANNELS.startAudioCapture, async () => {
-    bindListeners();
+  if (!handlersRegistered) {
+    handlersRegistered = true;
 
-    if (pendingStartTimer) {
-      clearTimeout(pendingStartTimer);
-      pendingStartTimer = null;
-    }
+    ipcMain.handle(IPC_CHANNELS.startAudioCapture, async () => {
+      bindListeners();
 
-    if (transcriptService.isRunning()) {
-      return { success: true, running: true };
-    }
-
-    await new Promise<void>((resolve) => {
-      pendingStartTimer = setTimeout(() => {
+      if (pendingStartTimer) {
+        clearTimeout(pendingStartTimer);
         pendingStartTimer = null;
-        if (!transcriptService.isRunning()) {
-          transcriptService.start();
-        }
-        resolve();
-      }, 600);
+      }
+
+      if (transcriptService.isRunning()) {
+        return { success: true, running: true };
+      }
+
+      await new Promise<void>((resolve) => {
+        pendingStartTimer = setTimeout(() => {
+          pendingStartTimer = null;
+          if (!transcriptService.isRunning()) {
+            transcriptService.start();
+          }
+          resolve();
+        }, 600);
+      });
+
+      return { success: true };
     });
 
-    return { success: true };
-  });
+    ipcMain.on(IPC_CHANNELS.pushAudioChunk, (_event, chunk: Uint8Array | ArrayBuffer | Buffer | null | undefined) => {
+      if (!chunk) return;
+      try {
+        const resolved =
+          chunk instanceof ArrayBuffer ? Buffer.from(chunk) :
+          Buffer.isBuffer(chunk) ? chunk :
+          Buffer.from(chunk);
+        console.log(`[AUDIO] Received PCM chunk: ${resolved.length} bytes`);
+        transcriptService.pushPCM(resolved);
+      } catch (error) {
+        console.warn('[AUDIO] Failed to forward PCM chunk:', error);
+      }
+    });
 
-  ipcMain.on(IPC_CHANNELS.pushAudioChunk, (_event, chunk: Uint8Array | ArrayBuffer | Buffer | null | undefined) => {
-    if (!chunk) {
-      return;
-    }
+    ipcMain.handle(IPC_CHANNELS.stopAudioCapture, async () => {
+      if (pendingStartTimer) {
+        clearTimeout(pendingStartTimer);
+        pendingStartTimer = null;
+      }
+      transcriptService.stop();
+      transcriptService.removeAllListeners('transcript');
+      transcriptService.removeAllListeners('interim');
+      transcriptService.removeAllListeners('error');
+      transcriptService.removeAllListeners('status');
+      listenersBound = false;
+      return { success: true };
+    });
 
-    try {
-      const resolved =
-        chunk instanceof ArrayBuffer ? Buffer.from(chunk) : Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      console.log(`[AUDIO] Received PCM chunk: ${resolved.length} bytes`);
-      transcriptService.pushPCM(resolved);
-    } catch (error) {
-      console.warn('[AUDIO] Failed to forward PCM chunk:', error);
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.stopAudioCapture, async () => {
-    if (pendingStartTimer) {
-      clearTimeout(pendingStartTimer);
-      pendingStartTimer = null;
-    }
-    transcriptService.stop();
-    transcriptService.removeAllListeners('transcript');
-    transcriptService.removeAllListeners('interim');
-    transcriptService.removeAllListeners('error');
-    transcriptService.removeAllListeners('status');
-    listenersBound = false;
-    return { success: true };
-  });
-
-  ipcMain.handle('audio:status', async () => ({
-    transcriptRunning: transcriptService.isRunning(),
-    serverReady: transcriptService.isServerReady(),
-    serverError: transcriptService.getServerError(),
-    lastTranscript: transcriptService.getLastTranscript()
-  }));
+    ipcMain.handle('audio:status', async () => ({
+      transcriptRunning: transcriptService.isRunning(),
+      serverReady: transcriptService.isServerReady(),
+      serverError: transcriptService.getServerError(),
+      lastTranscript: transcriptService.getLastTranscript()
+    }));
+  }
 }

@@ -1,127 +1,118 @@
 #!/usr/bin/env python3
 """
-Natively — faster-whisper transcription server
-Receives WAV paths on stdin, emits one transcript line per WAV on stdout.
+Natively — faster-whisper transcription server.
+Receives WAV file paths on stdin, transcribes using faster-whisper,
+emits INTERIM: and FINAL: transcript lines on stdout.
 """
 
-import logging
 import os
-import re
 import sys
 
-logging.basicConfig(level=logging.ERROR)
-logging.getLogger("faster_whisper").setLevel(logging.ERROR)
 
-MODEL_SIZE = os.environ.get("WHISPER_MODEL", "turbo")
-LANGUAGE = os.environ.get("WHISPER_LANGUAGE", os.environ.get("WHISPER_LANG", "en"))
-COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE", "int8")
-DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
+def load_env_file():
+    env_path = os.path.join(os.getcwd(), ".env")
+    if not os.path.exists(env_path):
+        env_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "..", ".env"
+        )
+    if not os.path.exists(env_path):
+        return
+    try:
+        with open(env_path, "r", encoding="utf-8") as handle:
+            for raw_line in handle:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and (key not in os.environ or not os.environ[key].strip()):
+                    os.environ[key] = value
+    except Exception as error:
+        sys.stderr.write(f"[transcribe_server] Failed to read .env: {error}\n")
+        sys.stderr.flush()
 
-sys.stderr.write(f"[transcribe_server] Loading faster-whisper model: {MODEL_SIZE}\n")
-sys.stderr.write(f"[transcribe_server] Device: {DEVICE}, Compute: {COMPUTE_TYPE}\n")
+
+load_env_file()
+
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "turbo")
+WHISPER_LANGUAGE = os.environ.get("WHISPER_LANGUAGE", "en")
+WHISPER_COMPUTE = os.environ.get("WHISPER_COMPUTE", "int8")
+WHISPER_DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
+
+sys.stderr.write(
+    f"[transcribe_server] Loading faster-whisper model: {WHISPER_MODEL} "
+    f"device={WHISPER_DEVICE} compute={WHISPER_COMPUTE}\n"
+)
 sys.stderr.flush()
 
 try:
     from faster_whisper import WhisperModel
 except ImportError:
-    sys.stderr.write("[transcribe_server] ERROR: faster-whisper not installed.\n")
+    sys.stderr.write(
+        "[transcribe_server] ERROR: faster-whisper not installed. "
+        "Run: pip install faster-whisper\n"
+    )
     sys.stderr.flush()
-    print("ERROR:faster-whisper not installed. Run: pip3 install faster-whisper", flush=True)
+    print("ERROR:faster-whisper not installed", flush=True)
     sys.exit(1)
 
 try:
     model = WhisperModel(
-        MODEL_SIZE,
-        device=DEVICE,
-        compute_type=COMPUTE_TYPE,
+        WHISPER_MODEL,
+        device=WHISPER_DEVICE,
+        compute_type=WHISPER_COMPUTE,
     )
-    sys.stderr.write("[transcribe_server] Model loaded successfully\n")
+    sys.stderr.write(
+        f"[transcribe_server] loaded model: {WHISPER_MODEL}\n"
+    )
     sys.stderr.flush()
-    print(f"[transcribe_server] loaded model: {MODEL_SIZE}", flush=True)
 except Exception as error:
     sys.stderr.write(f"[transcribe_server] ERROR loading model: {error}\n")
     sys.stderr.flush()
     print(f"ERROR:{error}", flush=True)
     sys.exit(1)
 
+print(f"[transcribe_server] loaded model: {WHISPER_MODEL}", flush=True)
 print("READY", flush=True)
 
-HALLUCINATIONS = {
-    "thank you", "thanks for watching", "you", "bye", "goodbye",
-    "see you", "subscribe", "like and subscribe", ".", "..", "...",
-    "uh", "um", "hmm", "hm", "ah", "oh", "okay", "ok",
-    "thank you for watching", "thanks", "please subscribe",
-    "subtitles by", "transcribed by", "captions by",
-}
 
-JUNK_PATTERNS = [
-    re.compile(r'^\[.*?\]$'),
-    re.compile(r'^\(.*?\)$'),
-    re.compile(r'^[♪♫\s]+$'),
-    re.compile(r'^\.+$'),
-    re.compile(r'^[\s\W]{1,3}$'),
-    re.compile(r'^(um+|uh+|ah+|er+|mm+)[\.,\s]*$', re.IGNORECASE),
-]
-
-
-def is_hallucination(text: str) -> bool:
-    cleaned = text.strip().lower().rstrip(".")
-    return cleaned in HALLUCINATIONS or len(cleaned) <= 2
+def transcribe_wav(wav_path: str, mode: str) -> str:
+    try:
+        segments, _ = model.transcribe(
+            wav_path,
+            language=WHISPER_LANGUAGE if WHISPER_LANGUAGE != "auto" else None,
+            vad_filter=True,
+            vad_parameters=dict(
+                min_silence_duration_ms=300,
+                speech_pad_ms=100,
+            ),
+            beam_size=5 if mode == "FULL" else 1,
+            best_of=5 if mode == "FULL" else 1,
+        )
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        return text
+    except Exception as error:
+        sys.stderr.write(f"[transcribe_server] transcription error: {error}\n")
+        sys.stderr.flush()
+        return ""
 
 
 def is_junk(text: str) -> bool:
-    text = text.strip()
-    if len(text) < 3:
+    if not text:
         return True
-    for pattern in JUNK_PATTERNS:
-        if pattern.match(text):
-            return True
+    stripped = text.strip().strip(".,!?").lower()
+    junk_phrases = {
+        "thank you", "thanks", "thank you for watching",
+        "please subscribe", "like and subscribe",
+        "you", "the", "a", "i", ".", ",", "...", "bye", "goodbye",
+        "subtitles by", "transcribed by", "www", "http",
+    }
+    if stripped in junk_phrases:
+        return True
+    if len(stripped) < 3:
+        return True
     return False
-
-
-def transcribe_fast(wav_path: str, language: str):
-    segments, _ = model.transcribe(
-        wav_path,
-        language=language if language != 'auto' else None,
-        beam_size=1,
-        best_of=1,
-        vad_filter=True,
-        vad_parameters=dict(
-            min_silence_duration_ms=300,
-            speech_pad_ms=100,
-            min_speech_duration_ms=200,
-            threshold=0.5,
-        ),
-        condition_on_previous_text=False,
-        no_speech_threshold=0.6,
-    )
-    for segment in segments:
-        text = segment.text.strip()
-        if text and not is_hallucination(text) and not is_junk(text):
-            print(f'INTERIM:{text}', flush=True)
-
-
-def transcribe_full(wav_path: str, language: str):
-    segments, _ = model.transcribe(
-        wav_path,
-        language=language if language != 'auto' else None,
-        beam_size=5,
-        vad_filter=True,
-        vad_parameters=dict(
-            min_silence_duration_ms=500,
-            speech_pad_ms=100,
-            min_speech_duration_ms=250,
-            threshold=0.6,
-        ),
-        condition_on_previous_text=False,
-        no_speech_threshold=0.6,
-        log_prob_threshold=-1.0,
-        compression_ratio_threshold=2.4,
-    )
-    for segment in segments:
-        text = segment.text.strip()
-        if text and not is_hallucination(text) and not is_junk(text):
-            print(f'FINAL:{text}', flush=True)
 
 
 for raw_line in sys.stdin:
@@ -129,27 +120,32 @@ for raw_line in sys.stdin:
     if not line:
         continue
 
-    if line.startswith('FAST:'):
+    if line.startswith("FAST:"):
         wav_path = line[5:]
-        mode = 'FAST'
-    elif line.startswith('FULL:'):
+        mode = "FAST"
+    elif line.startswith("FULL:"):
         wav_path = line[5:]
-        mode = 'FULL'
+        mode = "FULL"
     else:
         wav_path = line
-        mode = 'FULL'
+        mode = "FULL"
 
     if not os.path.exists(wav_path):
         sys.stderr.write(f"[transcribe_server] File not found: {wav_path}\n")
         sys.stderr.flush()
         continue
 
+    transcript = transcribe_wav(wav_path, mode)
+
     try:
-        if mode == 'FAST':
-            transcribe_fast(wav_path, LANGUAGE)
-        else:
-            transcribe_full(wav_path, LANGUAGE)
-    except Exception as error:
-        sys.stderr.write(f"[transcribe_server] Transcription error: {error}\n")
-        sys.stderr.flush()
+        os.unlink(wav_path)
+    except Exception:
+        pass
+
+    if is_junk(transcript):
         continue
+
+    if mode == "FAST":
+        print(f"INTERIM:{transcript}", flush=True)
+    else:
+        print(f"FINAL:{transcript}", flush=True)

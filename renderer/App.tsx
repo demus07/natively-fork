@@ -103,9 +103,9 @@ async function startAudioCapture(
   try {
     micStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
         sampleRate: 16000,
         channelCount: 1
       }
@@ -613,9 +613,9 @@ export default function App() {
       }
 
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.72);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.5); // was 0.72 — reduced for 5x capture rate
       screenContextRef.current = dataUrl.replace(/^data:image\/jpeg;base64,/, '');
-    }, 1000);
+    }, 200); // was 1000 — now captures 5x more frequently for fresher screen context
 
     void startScreenPreview();
 
@@ -729,6 +729,14 @@ export default function App() {
     const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? '';
     const requestType: AIRequestType = type === 'answer_now' ? 'custom' : (type as AIRequestType);
     const userMessage = type === 'answer_now' ? 'Answer using the current context.' : type === 'shorten' ? latestAssistant : undefined;
+
+    logToTerminal('log', '[AI] Quick action triggered', {
+      action: type,
+      requestType,
+      hasTranscript: Boolean(transcriptRef.current.trim()),
+      hasScreenshot: Boolean(screenContextRef.current),
+      latestAssistantLength: latestAssistant.length
+    });
 
     flushAIState();
     setActiveAction(type);

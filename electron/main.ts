@@ -115,7 +115,11 @@ async function bootstrap(): Promise<void> {
   );
 
   if (process.platform === 'darwin') {
-    void systemPreferences.askForMediaAccess('microphone').catch(() => undefined);
+    const micGranted = await systemPreferences.askForMediaAccess('microphone').catch(() => false);
+    console.log('[MAIN] Microphone permission granted:', micGranted);
+    if (!micGranted) {
+      console.warn('[MAIN] Microphone permission denied — native audio capture will not work');
+    }
   }
 
   initDatabase();

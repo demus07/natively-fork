@@ -1,6 +1,6 @@
 import type { AIPayload, Settings } from '../../renderer/types';
 import { getSettingsCache } from './database';
-import { runCodex } from './codex';
+import { runGemini } from './gemini';
 import type { BrowserWindow } from 'electron';
 
 const SYSTEM_PROMPT = `You are Natively, a real-time AI assistant helping during meetings, interviews, and conversations.
@@ -14,7 +14,7 @@ function formatTranscriptContext(transcript: string, rollingContextSize: number)
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(-rollingContextSize);
+    .slice(-Math.min(rollingContextSize, 8));
 
   return [
     '[LIVE TRANSCRIPT - last segments]',
@@ -96,12 +96,9 @@ export async function routeAIRequest(
 ): Promise<{ provider: Settings['aiProvider']; prompt: string; response: string }> {
   const settings = getSettingsCache();
   const transcriptContext = formatTranscriptContext(payload.transcript, settings.rollingContextSize);
-  const prompt = `${SYSTEM_PROMPT}
+  const prompt = `${SYSTEM_PROMPT}\n\n${transcriptContext}\n\n[USER REQUEST]\n${buildPrompt(payload)}`;
 
-${transcriptContext}
+  const response = await runGemini(prompt, payload.screenshot ?? null, _mainWindow);
 
-[USER REQUEST]
-${buildPrompt(payload)}`;
-  const response = await runCodex(prompt, payload.screenshot ?? null, settings.codexExtraFlags);
   return { provider: settings.aiProvider, prompt, response };
 }

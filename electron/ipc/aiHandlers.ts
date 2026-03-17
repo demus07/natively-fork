@@ -2,6 +2,7 @@ import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
 import type { AIPayload, Message } from '../../renderer/types';
 import { routeAIRequest } from '../services/aiRouter';
+import { supportsVision } from '../services/gemini';
 import { getMessages, saveMessage, trackUsage } from '../services/database';
 
 function estimateTokens(content: string): number {
@@ -14,6 +15,7 @@ export function initAIHandlers(
   captureFullScreen: () => Promise<string>
 ): void {
   ipcMain.handle(IPC_CHANNELS.sendAIMessage, async (_event, payload: AIPayload) => {
+    console.log('[AI HANDLER] received request, type:', payload.type);
     let assistantResponse = '';
     try {
       const promptSource =
@@ -21,17 +23,21 @@ export function initAIHandlers(
       saveMessage('user', promptSource, sessionId);
 
       let screenshot = payload.screenshot ?? null;
-      if (!screenshot) {
+      if (!screenshot && supportsVision) {
         const screenshotPromise = captureFullScreen().catch((error) => {
           console.warn('[SCREEN] Screenshot unavailable — sending text-only request', error);
           return null;
         });
         screenshot = await Promise.race([
           screenshotPromise,
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 500))
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500))
         ]);
+      } else if (!supportsVision) {
+        screenshot = null;
+        console.log('[SCREEN] Skipping screenshot capture — current model does not support vision');
       }
 
+      console.log('[AI HANDLER] calling routeAIRequest');
       assistantResponse = (
         await routeAIRequest(
           {
