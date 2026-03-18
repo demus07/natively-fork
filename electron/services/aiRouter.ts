@@ -1,6 +1,6 @@
 import type { AIPayload, Settings } from '../../renderer/types';
 import { getSettingsCache } from './database';
-import { runGemini } from './gemini';
+import { registry } from './providerRegistry';
 import type { BrowserWindow } from 'electron';
 
 const SYSTEM_PROMPT = `You are Natively, a real-time AI assistant helping during meetings, interviews, and conversations.
@@ -93,12 +93,12 @@ function buildPrompt(payload: AIPayload): string {
 export async function routeAIRequest(
   payload: AIPayload,
   _mainWindow: BrowserWindow
-): Promise<{ provider: Settings['aiProvider']; prompt: string; response: string }> {
+): Promise<{ provider: Settings['aiProvider'] | Settings['llmProvider']; prompt: string; response: string }> {
   const settings = getSettingsCache();
   const transcriptContext = formatTranscriptContext(payload.transcript, settings.rollingContextSize);
   const prompt = `${SYSTEM_PROMPT}\n\n${transcriptContext}\n\n[USER REQUEST]\n${buildPrompt(payload)}`;
 
-  const response = await runGemini(prompt, payload.screenshot ?? null, _mainWindow);
+  const response = await registry.getLLM().stream(prompt, payload.screenshot ?? null, _mainWindow);
 
-  return { provider: settings.aiProvider, prompt, response };
+  return { provider: settings.llmProvider || settings.aiProvider, prompt, response };
 }

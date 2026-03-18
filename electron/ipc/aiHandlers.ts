@@ -2,7 +2,7 @@ import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
 import type { AIPayload, Message } from '../../renderer/types';
 import { routeAIRequest } from '../services/aiRouter';
-import { supportsVision } from '../services/gemini';
+import { registry } from '../services/providerRegistry';
 import { getMessages, saveMessage, trackUsage } from '../services/database';
 
 function estimateTokens(content: string): number {
@@ -23,7 +23,7 @@ export function initAIHandlers(
       saveMessage('user', promptSource, sessionId);
 
       let screenshot = payload.screenshot ?? null;
-      if (!screenshot && supportsVision) {
+      if (!screenshot && registry.getLLM().supportsVision) {
         const screenshotPromise = captureFullScreen().catch((error) => {
           console.warn('[SCREEN] Screenshot unavailable — sending text-only request', error);
           return null;
@@ -32,7 +32,7 @@ export function initAIHandlers(
           screenshotPromise,
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500))
         ]);
-      } else if (!supportsVision) {
+      } else if (!registry.getLLM().supportsVision) {
         screenshot = null;
         console.log('[SCREEN] Skipping screenshot capture — current model does not support vision');
       }

@@ -164,6 +164,31 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           Reference repository
         </a>
 
+        <div style={{ borderTop: '1px solid var(--color-border-tertiary)', paddingTop: '16px', marginTop: '16px' }}>
+          <p style={{ fontSize: '13px', fontWeight: 500, marginBottom: '8px' }}>AI Providers</p>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
+            LLM: {draft.llmProvider || 'ollama'} —{' '}
+            {draft.llmProvider === 'gemini' ? draft.geminiModel || 'gemini-2.5-flash' : draft.ollamaModel || 'qwen3.5:35b'}
+          </p>
+          <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
+            STT: {draft.sttProvider || 'whisper'}
+          </p>
+          <button
+            onClick={() => void window.electronAPI.openSetup?.()}
+            style={{
+              padding: '7px 14px',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border-secondary)',
+              background: 'transparent',
+              color: 'var(--color-text-primary)',
+              fontSize: '13px',
+              cursor: 'pointer'
+            }}
+          >
+            Reconfigure Providers
+          </button>
+        </div>
+
         <button type="button" className="settings-save-btn" onClick={() => void handleSave()}>
           {saved ? 'Saved' : 'Save'}
         </button>

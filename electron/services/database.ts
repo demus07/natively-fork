@@ -10,11 +10,23 @@ type SettingRecord = {
 
 const DEFAULT_SETTINGS: Settings = {
   aiProvider: 'codex',
+  llmProvider: 'ollama',
+  geminiApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
+  ollamaEndpoint: 'http://192.168.29.234:11434',
+  ollamaModel: 'qwen3.5:35b',
+  sttProvider: 'whisper',
+  deepgramApiKey: '',
+  deepgramModel: 'nova-2-meeting',
   googleServiceAccountPath: '',
   codexModel: 'codex-4',
   codexExtraFlags: '',
   transcriptLanguage: 'en',
-  whisperModel: 'base.en',
+  whisperModel: 'turbo',
+  whisperLanguage: 'en',
+  whisperComputeType: 'int8',
+  whisperDevice: 'cpu',
+  whisperPythonBin: '',
   windowOpacity: 0.9,
   rollingContextSize: 20,
   includeOverlayInScreenshots: false
@@ -62,6 +74,19 @@ export function initDatabase(): void {
       requests INTEGER DEFAULT 0
     );
   `);
+
+  const seedDefaults = database.transaction(() => {
+    for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
+      database
+        .prepare(
+          `INSERT INTO settings (key, value)
+           VALUES (?, ?)
+           ON CONFLICT(key) DO NOTHING`
+        )
+        .run(key, JSON.stringify(value));
+    }
+  });
+  seedDefaults();
 
   loadSettingsCache();
 }

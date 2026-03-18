@@ -45,7 +45,8 @@ const electronAPI = {
   captureSelectiveScreen: () => ipcRenderer.invoke(IPC_CHANNELS.captureSelectiveScreen) as Promise<string>,
   setScreenshotOverlayVisibility: (visible: boolean) =>
     ipcRenderer.invoke(IPC_CHANNELS.setScreenshotOverlayVisibility, visible) as Promise<void>,
-  startAudioCapture: () => ipcRenderer.invoke(IPC_CHANNELS.startAudioCapture) as Promise<void>,
+  startAudioCapture: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.startAudioCapture) as Promise<{ success: boolean; usingNativeCapture?: boolean }>,
   stopAudioCapture: () => ipcRenderer.invoke(IPC_CHANNELS.stopAudioCapture) as Promise<void>,
   pushAudioChunk: (chunk: Uint8Array) => ipcRenderer.send(IPC_CHANNELS.pushAudioChunk, chunk),
   logDebug: (payload: { level: 'log' | 'warn' | 'error'; message: string; data?: unknown }) =>
@@ -104,7 +105,12 @@ const electronAPI = {
   saveSettings: (settings: unknown) => ipcRenderer.invoke(IPC_CHANNELS.saveSettings, settings),
   getConversationHistory: () => ipcRenderer.invoke(IPC_CHANNELS.getConversationHistory),
   clearHistory: () => ipcRenderer.invoke(IPC_CHANNELS.clearHistory) as Promise<void>,
-  getUsageStats: () => ipcRenderer.invoke(IPC_CHANNELS.getUsageStats)
+  getUsageStats: () => ipcRenderer.invoke(IPC_CHANNELS.getUsageStats),
+  testLLMConnection: (config: unknown) => ipcRenderer.invoke('setup:testLLM', config),
+  testSTTConnection: (config: unknown) => ipcRenderer.invoke('setup:testSTT', config),
+  saveProviderSettings: (settings: unknown) => ipcRenderer.invoke('setup:saveSettings', settings),
+  launchOverlay: () => ipcRenderer.invoke('setup:complete'),
+  openSetup: () => ipcRenderer.invoke('setup:open')
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

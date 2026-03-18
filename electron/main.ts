@@ -26,11 +26,20 @@ import {
   saveAllSettings
 } from './services/database';
 import { setCodexWindow } from './services/codex';
+import { registry } from './services/providerRegistry';
+import { createSetupWindow, closeSetupWindow } from './setupWindow';
+import { GeminiProvider } from './providers/GeminiProvider';
+import { OllamaProvider } from './providers/OllamaProvider';
+import { DeepgramProvider } from './providers/DeepgramProvider';
+import { WhisperProvider } from './providers/WhisperProvider';
 
 let mainWindow: BrowserWindow | null = null;
 const sessionId = `session-${Date.now()}`;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+let commonHandlersRegistered = false;
+let overlayHandlersRegistered = false;
+let setupHandlersRegistered = false;
 
 function positionWindow(window: BrowserWindow): void {
   const display = screen.getPrimaryDisplay();
@@ -78,14 +87,196 @@ function createMainWindow(): BrowserWindow {
   if (isDev) {
     void window.loadURL(process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:5193');
   } else {
-    void window.loadFile(path.join(process.cwd(), 'dist/renderer/index.html'));
+    void window.loadFile(path.join(app.getAppPath(), 'dist/renderer/index.html'));
   }
 
   return window;
 }
 
+function isSetupComplete(settings: ReturnType<typeof getAllSettings>): boolean {
+  const hasLLM =
+    (settings.llmProvider === 'gemini' && Boolean(settings.geminiApiKey?.trim())) ||
+    (settings.llmProvider === 'ollama' && Boolean(settings.ollamaEndpoint?.trim()));
+  const hasSTT =
+    (settings.sttProvider === 'deepgram' && Boolean(settings.deepgramApiKey?.trim())) ||
+    settings.sttProvider === 'whisper';
+  return hasLLM && hasSTT;
+}
+
+function registerCommonHandlers(): void {
+  if (commonHandlersRegistered) {
+    return;
+  }
+  commonHandlersRegistered = true;
+
+  ipcMain.handle(IPC_CHANNELS.getSettings, () => getAllSettings());
+  ipcMain.on(
+    IPC_CHANNELS.rendererDebugLog,
+    (_event, payload: { level: 'log' | 'warn' | 'error'; message: string; data?: unknown }) => {
+      const logger = payload.level === 'error' ? console.error : payload.level === 'warn' ? console.warn : console.log;
+      if (payload.data !== undefined) {
+        logger(`[RENDERER] ${payload.message}`, payload.data);
+        return;
+      }
+      logger(`[RENDERER] ${payload.message}`);
+    }
+  );
+  ipcMain.handle(IPC_CHANNELS.getCodexStatus, () => {
+    const candidates = [
+      process.env.CODEX_BIN,
+      '/opt/homebrew/bin/codex',
+      '/usr/local/bin/codex',
+      'codex'
+    ].filter(Boolean) as string[];
+
+    for (const candidate of candidates) {
+      if (candidate.includes('/')) {
+        if (spawnSync('test', ['-x', candidate]).status === 0) {
+          return { found: true, path: candidate };
+        }
+        continue;
+      }
+
+      const resolved = spawnSync('which', [candidate], { encoding: 'utf8' }).stdout.trim();
+      if (resolved) {
+        return { found: true, path: resolved };
+      }
+    }
+
+    return { found: false, path: null };
+  });
+  ipcMain.handle(IPC_CHANNELS.saveSettings, (_event, settings) => saveAllSettings(settings));
+  ipcMain.handle(IPC_CHANNELS.clearHistory, () => {
+    clearMessages();
+  });
+  ipcMain.handle(IPC_CHANNELS.getUsageStats, () => getUsageStats());
+}
+
+async function launchOverlay(): Promise<void> {
+  if (overlayHandlersRegistered && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
+  mainWindow = createMainWindow();
+  setCodexWindow(mainWindow);
+  initWindowHandlers(mainWindow);
+  initAudioHandlers(mainWindow);
+  const screenshots = initScreenshotHandlers(mainWindow);
+  initAIHandlers(mainWindow, sessionId, screenshots.captureFullScreen);
+
+  registerWindowShortcuts(
+    mainWindow,
+    () => mainWindow?.webContents.send(IPC_CHANNELS.triggerAnswer),
+    () => {
+      void screenshots.captureFullScreen().then((image) => {
+        mainWindow?.webContents.send(IPC_CHANNELS.screenshotCaptured, image);
+      });
+    },
+    () => {
+      void screenshots.captureSelectiveScreen().then((image) => {
+        mainWindow?.webContents.send(IPC_CHANNELS.screenshotCaptured, image);
+      });
+    }
+  );
+
+  overlayHandlersRegistered = true;
+}
+
+function registerSetupHandlers(): void {
+  if (setupHandlersRegistered) {
+    return;
+  }
+  setupHandlersRegistered = true;
+
+  ipcMain.handle(
+    'setup:testLLM',
+    async (
+      _event,
+      config: {
+        provider: 'gemini' | 'ollama';
+        geminiApiKey?: string;
+        geminiModel?: string;
+        ollamaEndpoint?: string;
+        ollamaModel?: string;
+      }
+    ) => {
+      try {
+        if (config.provider === 'gemini') {
+          const provider = new GeminiProvider({
+            apiKey: config.geminiApiKey || '',
+            model: config.geminiModel || 'gemini-2.5-flash'
+          });
+          return await provider.testConnection();
+        }
+
+        const provider = new OllamaProvider({
+          endpoint: config.ollamaEndpoint || 'http://localhost:11434',
+          model: config.ollamaModel || 'qwen3.5:35b'
+        });
+        return await provider.testConnection();
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    'setup:testSTT',
+    async (
+      _event,
+      config: {
+        provider: 'deepgram' | 'whisper';
+        deepgramApiKey?: string;
+        deepgramModel?: string;
+        whisperModel?: string;
+      }
+    ) => {
+      try {
+        if (config.provider === 'deepgram') {
+          const provider = new DeepgramProvider({
+            apiKey: config.deepgramApiKey || '',
+            model: config.deepgramModel || 'nova-2-meeting'
+          });
+          return await provider.testConnection();
+        }
+
+        const provider = new WhisperProvider({
+          model: config.whisperModel || 'turbo',
+          language: 'en'
+        });
+        return await provider.testConnection();
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    }
+  );
+
+  ipcMain.handle('setup:saveSettings', async (_event, settings: Record<string, unknown>) => {
+    saveAllSettings(settings as unknown as ReturnType<typeof getAllSettings>);
+    return { ok: true };
+  });
+
+  ipcMain.handle('setup:complete', async () => {
+    const newSettings = getAllSettings();
+    registry.initFromSettings(newSettings);
+    closeSetupWindow();
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      await launchOverlay();
+    }
+    return { ok: true };
+  });
+
+  ipcMain.handle('setup:open', async () => {
+    createSetupWindow();
+    return { ok: true };
+  });
+}
+
 async function bootstrap(): Promise<void> {
   await app.whenReady();
+
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
     return ['media', 'microphone', 'audioCapture', 'mediaKeySystem'].includes(permission);
   });
@@ -118,79 +309,25 @@ async function bootstrap(): Promise<void> {
     const micGranted = await systemPreferences.askForMediaAccess('microphone').catch(() => false);
     console.log('[MAIN] Microphone permission granted:', micGranted);
     if (!micGranted) {
-      console.warn('[MAIN] Microphone permission denied — native audio capture will not work');
+      console.warn('[MAIN] Microphone permission denied — audio capture may not work');
     }
   }
 
   initDatabase();
   loadSettingsCache();
+  registerCommonHandlers();
+  registerSetupHandlers();
 
-  mainWindow = createMainWindow();
-  setCodexWindow(mainWindow);
-  initWindowHandlers(mainWindow);
-  initAudioHandlers(mainWindow);
-  const screenshots = initScreenshotHandlers(mainWindow);
-  initAIHandlers(mainWindow, sessionId, screenshots.captureFullScreen);
-
-  ipcMain.handle(IPC_CHANNELS.getSettings, () => getAllSettings());
-  ipcMain.on(IPC_CHANNELS.rendererDebugLog, (_event, payload: { level: 'log' | 'warn' | 'error'; message: string; data?: unknown }) => {
-    const logger = payload.level === 'error' ? console.error : payload.level === 'warn' ? console.warn : console.log;
-    if (payload.data !== undefined) {
-      logger(`[RENDERER] ${payload.message}`, payload.data);
-      return;
-    }
-    logger(`[RENDERER] ${payload.message}`);
+  const settings = getAllSettings();
+  console.log('[MAIN] Showing setup window on launch', {
+    isDev,
+    setupComplete: isSetupComplete(settings)
   });
-  ipcMain.handle(IPC_CHANNELS.getCodexStatus, () => {
-    const candidates = [
-      process.env.CODEX_BIN,
-      '/opt/homebrew/bin/codex',
-      '/usr/local/bin/codex',
-      'codex'
-    ].filter(Boolean) as string[];
-
-    for (const candidate of candidates) {
-      if (candidate.includes('/')) {
-        if (spawnSync('test', ['-x', candidate]).status === 0) {
-          return { found: true, path: candidate };
-        }
-        continue;
-      }
-
-      const resolved = spawnSync('which', [candidate], { encoding: 'utf8' }).stdout.trim();
-      if (resolved) {
-        return { found: true, path: resolved };
-      }
-    }
-
-    return { found: false, path: null };
-  });
-  ipcMain.handle(IPC_CHANNELS.saveSettings, (_event, settings) => {
-    saveAllSettings(settings);
-  });
-  ipcMain.handle(IPC_CHANNELS.clearHistory, () => {
-    clearMessages();
-  });
-  ipcMain.handle(IPC_CHANNELS.getUsageStats, () => getUsageStats());
-
-  registerWindowShortcuts(
-    mainWindow,
-    () => mainWindow?.webContents.send(IPC_CHANNELS.triggerAnswer),
-    () => {
-      void screenshots.captureFullScreen().then((image) => {
-        mainWindow?.webContents.send(IPC_CHANNELS.screenshotCaptured, image);
-      });
-    },
-    () => {
-      void screenshots.captureSelectiveScreen().then((image) => {
-        mainWindow?.webContents.send(IPC_CHANNELS.screenshotCaptured, image);
-      });
-    }
-  );
+  createSetupWindow();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createMainWindow();
+      createSetupWindow();
     } else {
       mainWindow?.show();
       mainWindow?.setIgnoreMouseEvents(false);

@@ -51,6 +51,7 @@ function loadNativeModule(): typeof nativeModule {
   if (nativeModule) return nativeModule;
 
   const candidates = [
+    path.join(process.resourcesPath, 'native-module', 'index.js'),
     path.join(app.getAppPath(), 'native-module', 'index.js'),
     path.join(process.cwd(), 'native-module', 'index.js'),
     path.join(__dirname, '..', '..', 'native-module', 'index.js'),

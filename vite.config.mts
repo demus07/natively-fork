@@ -41,7 +41,13 @@ export default defineConfig({
     port: 5180
   },
   build: {
-    outDir: 'dist/renderer'
+    outDir: 'dist/renderer',
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        setup: path.resolve(__dirname, 'setup.html')
+      }
+    }
   },
   root: '.',
   resolve: {

@@ -1,4 +1,4 @@
-export type AIProvider = 'codex';
+export type AIProvider = 'ollama' | 'gemini' | 'codex';
 export type AIRequestType = 'answer' | 'shorten' | 'recap' | 'followup' | 'custom';
 export type ActionType = 'answer' | 'shorten' | 'recap' | 'followup' | 'answer_now' | 'custom';
 
@@ -12,11 +12,23 @@ export interface Message {
 
 export interface Settings {
   aiProvider: string;
+  llmProvider: 'ollama' | 'gemini';
+  geminiApiKey: string;
+  geminiModel: string;
+  ollamaEndpoint: string;
+  ollamaModel: string;
+  sttProvider: 'deepgram' | 'whisper';
+  deepgramApiKey: string;
+  deepgramModel: string;
   codexModel: string;
   codexExtraFlags: string;
   googleServiceAccountPath: string;
   transcriptLanguage: string;
-  whisperModel: 'tiny.en' | 'base.en';
+  whisperModel: string;
+  whisperLanguage: string;
+  whisperComputeType: string;
+  whisperDevice: string;
+  whisperPythonBin: string;
   windowOpacity: number;
   rollingContextSize: number;
   includeOverlayInScreenshots: boolean;
@@ -56,7 +68,7 @@ export interface ElectronAPI {
   quitApp: () => void;
   captureFullScreen: () => Promise<string>;
   captureSelectiveScreen: () => Promise<string>;
-  startAudioCapture: () => Promise<void>;
+  startAudioCapture: () => Promise<{ success: boolean; usingNativeCapture?: boolean }>;
   stopAudioCapture: () => Promise<void>;
   pushAudioChunk: (chunk: Uint8Array) => void;
   logDebug?: (payload: { level: 'log' | 'warn' | 'error'; message: string; data?: unknown }) => void;
@@ -78,6 +90,11 @@ export interface ElectronAPI {
   getUsageStats: () => Promise<UsageStats>;
   setScreenshotOverlayVisibility?: (visible: boolean) => Promise<void>;
   openFileDialog?: () => Promise<string | null>;
+  testLLMConnection?: (config: unknown) => Promise<{ ok: boolean; error?: string; latencyMs?: number }>;
+  testSTTConnection?: (config: unknown) => Promise<{ ok: boolean; error?: string }>;
+  saveProviderSettings?: (settings: unknown) => Promise<{ ok: boolean }>;
+  launchOverlay?: () => Promise<{ ok: boolean }>;
+  openSetup?: () => Promise<{ ok: boolean }>;
 }
 
 declare global {

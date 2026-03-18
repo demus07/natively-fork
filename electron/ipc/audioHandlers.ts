@@ -1,6 +1,6 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
-import { transcriptService } from '../services/localTranscript';
+import { registry } from '../services/providerRegistry';
 
 let pendingStartTimer: NodeJS.Timeout | null = null;
 let listenersBound = false;
@@ -8,20 +8,21 @@ let handlersRegistered = false;
 
 export function initAudioHandlers(mainWindow: BrowserWindow): void {
   const bindListeners = () => {
+    const stt = registry.getSTT();
     if (listenersBound) {
-      transcriptService.removeAllListeners('transcript');
-      transcriptService.removeAllListeners('interim');
-      transcriptService.removeAllListeners('error');
-      transcriptService.removeAllListeners('status');
+      stt.removeAllListeners('transcript');
+      stt.removeAllListeners('interim');
+      stt.removeAllListeners('error');
+      stt.removeAllListeners('status');
     }
 
-    transcriptService.on('interim', (text: string) => {
+    stt.on('interim', (text: string) => {
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IPC_CHANNELS.transcriptInterim, text);
       }
     });
 
-    transcriptService.on('transcript', (text: string) => {
+    stt.on('transcript', (text: string) => {
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IPC_CHANNELS.transcriptUpdate, {
           text,
@@ -30,7 +31,7 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
       }
     });
 
-    transcriptService.on('error', (error: Error) => {
+    stt.on('error', (error: Error) => {
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IPC_CHANNELS.transcriptError, {
           message: error.message
@@ -38,7 +39,7 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
       }
     });
 
-    transcriptService.on('status', (status: string) => {
+    stt.on('status', (status: string) => {
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IPC_CHANNELS.transcriptStatus, {
           status
@@ -60,15 +61,15 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
         pendingStartTimer = null;
       }
 
-      if (transcriptService.isRunning()) {
+      if (registry.getSTT().isRunning()) {
         return { success: true, running: true };
       }
 
       await new Promise<void>((resolve) => {
         pendingStartTimer = setTimeout(() => {
           pendingStartTimer = null;
-          if (!transcriptService.isRunning()) {
-            transcriptService.start();
+          if (!registry.getSTT().isRunning()) {
+            registry.getSTT().start();
           }
           resolve();
         }, 600);
@@ -85,7 +86,7 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
           Buffer.isBuffer(chunk) ? chunk :
           Buffer.from(chunk);
         console.log(`[AUDIO] Received PCM chunk: ${resolved.length} bytes`);
-        transcriptService.pushPCM(resolved);
+        registry.getSTT().pushPCM(resolved);
       } catch (error) {
         console.warn('[AUDIO] Failed to forward PCM chunk:', error);
       }
@@ -96,20 +97,21 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
         clearTimeout(pendingStartTimer);
         pendingStartTimer = null;
       }
-      transcriptService.stop();
-      transcriptService.removeAllListeners('transcript');
-      transcriptService.removeAllListeners('interim');
-      transcriptService.removeAllListeners('error');
-      transcriptService.removeAllListeners('status');
+      const stt = registry.getSTT();
+      stt.stop();
+      stt.removeAllListeners('transcript');
+      stt.removeAllListeners('interim');
+      stt.removeAllListeners('error');
+      stt.removeAllListeners('status');
       listenersBound = false;
       return { success: true };
     });
 
     ipcMain.handle('audio:status', async () => ({
-      transcriptRunning: transcriptService.isRunning(),
-      serverReady: transcriptService.isServerReady(),
-      serverError: transcriptService.getServerError(),
-      lastTranscript: transcriptService.getLastTranscript()
+      transcriptRunning: registry.getSTT().isRunning(),
+      serverReady: registry.getSTT().isServerReady(),
+      serverError: registry.getSTT().getServerError(),
+      lastTranscript: registry.getSTT().getLastTranscript()
     }));
   }
 }

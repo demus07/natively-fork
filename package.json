@@ -9,6 +9,8 @@
     "start": "node scripts/dev.mjs",
     "build": "tsc -p tsconfig.node.json && tsc && vite build",
     "dist": "npm run build && electron-builder",
+    "dist:mac": "npm run build && electron-builder --mac",
+    "dist:win": "npm run build && electron-builder --win",
     "build:native": "cd native-module && napi build --platform --release",
     "postinstall": "electron-builder install-app-deps && npm run build:native || echo \"Rust toolchain unavailable; native audio module not built.\""
   },
@@ -45,26 +47,82 @@
   "build": {
     "appId": "com.natively.app",
     "productName": "Natively",
-    "mac": {
-      "target": "dmg",
-      "category": "public.app-category.productivity"
-    },
-    "win": {
-      "target": "nsis"
+    "copyright": "Copyright © 2026 Natively",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
     },
     "files": [
       "dist/**/*",
-      "native-module/index.js",
-      "native-module/*.node"
+      "package.json"
     ],
     "extraResources": [
+      {
+        "from": "native-module/",
+        "to": "native-module/",
+        "filter": [
+          "**/*"
+        ]
+      },
       {
         "from": "scripts/",
         "to": "scripts/",
         "filter": [
-          "**/*.py"
+          "*.py"
         ]
       }
-    ]
+    ],
+    "asarUnpack": [
+      "native-module/**/*.node",
+      "scripts/**"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "title": "Natively",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
