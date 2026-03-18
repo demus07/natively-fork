@@ -1,4 +1,5 @@
 import type { AIPayload, Settings } from '../../renderer/types';
+import { AI_RUNTIME_CONFIG } from '../../src/config';
 import { getSettingsCache } from './database';
 import { registry } from './providerRegistry';
 import type { BrowserWindow } from 'electron';
@@ -14,7 +15,7 @@ function formatTranscriptContext(transcript: string, rollingContextSize: number)
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(-Math.min(rollingContextSize, 8));
+    .slice(-Math.min(rollingContextSize, AI_RUNTIME_CONFIG.transcriptSegmentCap));
 
   return [
     '[LIVE TRANSCRIPT - last segments]',
@@ -24,7 +25,7 @@ function formatTranscriptContext(transcript: string, rollingContextSize: number)
   ].join('\n');
 }
 
-export function buildAnswerPrompt(transcript: string): string {
+function buildAnswerPrompt(transcript: string): string {
   return `You are a real-time meeting and interview assistant. You have access to the current screen (attached image) and a live transcript of the ongoing conversation.
 
 Based on the screen content and conversation so far, determine what question or problem is being presented and provide the best, most direct answer or response.
@@ -35,14 +36,14 @@ LIVE TRANSCRIPT:
 ${transcript || '(no transcript yet)'}`;
 }
 
-export function buildShortenPrompt(lastResponse: string): string {
+function buildShortenPrompt(lastResponse: string): string {
   return `Take the following response and make it significantly more concise while keeping all critical information. Remove filler words and unnecessary elaboration. Aim for 40% shorter.
 
 RESPONSE TO SHORTEN:
 ${lastResponse}`;
 }
 
-export function buildRecapPrompt(transcript: string): string {
+function buildRecapPrompt(transcript: string): string {
   return `Based on the following conversation transcript and current screen, provide a clear structured summary of:
 1. What has been discussed so far
 2. Key decisions or conclusions reached
@@ -54,7 +55,7 @@ FULL TRANSCRIPT:
 ${transcript || '(no transcript yet)'}`;
 }
 
-export function buildFollowUpPrompt(transcript: string): string {
+function buildFollowUpPrompt(transcript: string): string {
   return `You are a strategic conversation coach. Based on the transcript and screen context, suggest the 2-3 most useful follow-up questions the user could ask right now to drive the conversation forward, clarify something important, or demonstrate deeper understanding.
 
 Format as a numbered list. Keep each question short and natural-sounding.
@@ -63,7 +64,7 @@ LIVE TRANSCRIPT:
 ${transcript || '(no transcript yet)'}`;
 }
 
-export function buildCustomPrompt(userMessage: string, transcript: string): string {
+function buildCustomPrompt(userMessage: string, transcript: string): string {
   return `You are a helpful AI assistant with access to the user's screen and a live conversation transcript.
 
 The user is asking: ${userMessage}

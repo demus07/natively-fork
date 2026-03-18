@@ -4,17 +4,18 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { app } from 'electron';
+import { PYTHON_RUNTIME_CONFIG, STT_RUNTIME_CONFIG } from '../../src/config';
 import type { STTProvider, STTTestResult } from './STTProvider';
 
-const SAMPLE_RATE = 16000;
-const BYTES_PER_SAMPLE = 2;
-const FAST_FLUSH_MS = 1500;
-const FULL_FLUSH_MS = 5000;
-const MIN_FAST_BUFFER_MS = 800;
-const MIN_CHUNK_MS = 5000;
-const MAX_CHUNK_MS = 8000;
-const SILENCE_THRESHOLD = 0.01;
-const SILENCE_FLUSH_MS = 800;
+const SAMPLE_RATE = STT_RUNTIME_CONFIG.sampleRate;
+const BYTES_PER_SAMPLE = STT_RUNTIME_CONFIG.bytesPerSample;
+const FAST_FLUSH_MS = STT_RUNTIME_CONFIG.fastFlushMs;
+const FULL_FLUSH_MS = STT_RUNTIME_CONFIG.fullFlushMs;
+const MIN_FAST_BUFFER_MS = STT_RUNTIME_CONFIG.minFastBufferMs;
+const MIN_CHUNK_MS = STT_RUNTIME_CONFIG.minChunkMs;
+const MAX_CHUNK_MS = STT_RUNTIME_CONFIG.maxChunkMs;
+const SILENCE_THRESHOLD = STT_RUNTIME_CONFIG.silenceThreshold;
+const SILENCE_FLUSH_MS = STT_RUNTIME_CONFIG.silenceFlushMs;
 
 function writeWav(filePath: string, pcmInt16: Buffer): void {
   const header = Buffer.alloc(44);
@@ -223,7 +224,7 @@ export class WhisperProvider extends EventEmitter implements STTProvider {
         settled = true;
         proc.kill();
         resolve({ ok: false, error: 'Python check timed out' });
-      }, 8000);
+      }, PYTHON_RUNTIME_CONFIG.checkTimeoutMs);
 
       proc.stdout.on('data', (d: Buffer) => {
         output += d.toString();
@@ -249,9 +250,9 @@ export class WhisperProvider extends EventEmitter implements STTProvider {
 
   private getScriptPath(): string {
     if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'scripts', 'transcribe_server.py');
+      return path.join(process.resourcesPath, 'scripts', PYTHON_RUNTIME_CONFIG.scriptName);
     }
-    return path.join(app.getAppPath(), 'scripts', 'transcribe_server.py');
+    return path.join(app.getAppPath(), 'scripts', PYTHON_RUNTIME_CONFIG.scriptName);
   }
 
   private getBufferDurationMs(): number {
@@ -351,7 +352,7 @@ export class WhisperProvider extends EventEmitter implements STTProvider {
           if (this.running) {
             this.spawnServer();
           }
-        }, 1200);
+        }, PYTHON_RUNTIME_CONFIG.restartDelayMs);
       }
     });
 
@@ -481,11 +482,7 @@ export class WhisperProvider extends EventEmitter implements STTProvider {
   private findPython(): string | null {
     const candidates = [
       this.config.pythonBin,
-      '/Library/Frameworks/Python.framework/Versions/3.11/bin/python3',
-      '/opt/homebrew/bin/python3',
-      '/usr/local/bin/python3',
-      '/usr/bin/python3',
-      'python3'
+      ...PYTHON_RUNTIME_CONFIG.pathCandidates
     ].filter(Boolean) as string[];
 
     for (const candidate of candidates) {

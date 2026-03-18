@@ -152,7 +152,3 @@ export const codexRunner = new CodexRunner();
 export function setCodexWindow(win: BrowserWindow): void {
   codexRunner.setWindow(win);
 }
-
-export async function runCodex(prompt: string, imageBase64: string | null, extraFlags: string): Promise<string> {
-  return codexRunner.run(prompt, imageBase64, extraFlags);
-}

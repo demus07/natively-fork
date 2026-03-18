@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
+import { APP_METADATA, PROVIDER_DEFAULTS } from '../src/config';
 
 type LLMProvider = 'gemini' | 'ollama';
 type STTProvider = 'deepgram' | 'whisper';
@@ -12,9 +13,9 @@ interface TestState {
 export default function SetupApp() {
   const [llmProvider, setLLMProvider] = useState<LLMProvider>('ollama');
   const [geminiKey, setGeminiKey] = useState('');
-  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  const [geminiModel, setGeminiModel] = useState<string>(PROVIDER_DEFAULTS.geminiModel);
   const [ollamaEndpoint, setOllamaEndpoint] = useState('http://localhost:11434');
-  const [ollamaModel, setOllamaModel] = useState('qwen3.5:35b');
+  const [ollamaModel, setOllamaModel] = useState<string>(PROVIDER_DEFAULTS.ollamaModel);
   const [llmTest, setLLMTest] = useState<TestState>({ status: 'idle', message: '' });
 
   const [sttProvider, setSTTProvider] = useState<STTProvider>('whisper');
@@ -62,7 +63,7 @@ export default function SetupApp() {
   const testSTT = async () => {
     setSTTTest({ status: 'testing', message: '' });
     const config = sttProvider === 'deepgram'
-      ? { provider: 'deepgram', deepgramApiKey: deepgramKey, deepgramModel: 'nova-2-meeting' }
+      ? { provider: 'deepgram', deepgramApiKey: deepgramKey, deepgramModel: PROVIDER_DEFAULTS.deepgramModel }
       : { provider: 'whisper', whisperModel };
     try {
       const result = await window.electronAPI.testSTTConnection?.(config);
@@ -87,11 +88,11 @@ export default function SetupApp() {
         ollamaModel,
         sttProvider,
         deepgramApiKey: deepgramKey,
-        deepgramModel: 'nova-2-meeting',
+        deepgramModel: PROVIDER_DEFAULTS.deepgramModel,
         whisperModel,
-        whisperLanguage: 'en',
-        whisperComputeType: 'int8',
-        whisperDevice: 'cpu'
+        whisperLanguage: PROVIDER_DEFAULTS.whisperLanguage,
+        whisperComputeType: PROVIDER_DEFAULTS.whisperComputeType,
+        whisperDevice: PROVIDER_DEFAULTS.whisperDevice
       });
       await window.electronAPI.launchOverlay?.();
     } catch (err) {
@@ -102,7 +103,7 @@ export default function SetupApp() {
 
   const canLaunch = llmTest.status === 'ok' && sttTest.status === 'ok' && !launching;
 
-  const inputStyle: React.CSSProperties = {
+  const inputStyle: CSSProperties = {
     width: '100%',
     padding: '9px 12px',
     borderRadius: '8px',
@@ -115,9 +116,9 @@ export default function SetupApp() {
     marginBottom: '8px'
   };
 
-  const selectStyle: React.CSSProperties = { ...inputStyle, cursor: 'pointer' };
+  const selectStyle: CSSProperties = { ...inputStyle, cursor: 'pointer' };
 
-  const btnStyle = (enabled: boolean): React.CSSProperties => ({
+  const btnStyle = (enabled: boolean): CSSProperties => ({
     padding: '8px 16px',
     borderRadius: '8px',
     border: 'none',
@@ -139,8 +140,8 @@ export default function SetupApp() {
     return <span style={{ color: '#dc2626', fontSize: '13px', marginLeft: '10px' }}>{test.message}</span>;
   };
 
-  const helpStyle: React.CSSProperties = { fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '12px' };
-  const linkStyle: React.CSSProperties = { color: '#60a5fa', cursor: 'pointer', textDecoration: 'underline' };
+  const helpStyle: CSSProperties = { fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '12px' };
+  const linkStyle: CSSProperties = { color: '#60a5fa', cursor: 'pointer', textDecoration: 'underline' };
 
   return (
     <div
@@ -154,7 +155,7 @@ export default function SetupApp() {
       }}
     >
       <div style={{ maxWidth: '580px', margin: '0 auto' }}>
-        <h1 style={{ fontSize: '22px', fontWeight: 600, marginBottom: '6px' }}>Welcome to Natively</h1>
+        <h1 style={{ fontSize: '22px', fontWeight: 600, marginBottom: '6px' }}>Welcome to {APP_METADATA.name}</h1>
         <p style={{ color: 'rgba(255,255,255,0.6)', marginBottom: '28px', fontSize: '14px' }}>
           Configure your AI and speech recognition providers to get started.
         </p>

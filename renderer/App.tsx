@@ -1,4 +1,9 @@
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import {
+  AUDIO_RUNTIME_CONFIG,
+  SCREEN_CAPTURE_CONFIG,
+  WINDOW_CONFIG
+} from '../src/config';
 import ChatPanel from './components/ChatPanel';
 import QuickActions from './components/QuickActions';
 import SettingsModal from './components/SettingsModal';
@@ -40,26 +45,6 @@ function rmsLevel(data: Float32Array): number {
   }
 
   return Math.sqrt(sumSquares / data.length);
-}
-
-function toTimestamp(value: number | string | undefined): number {
-  if (typeof value === 'number') {
-    return value;
-  }
-
-  if (typeof value === 'string') {
-    const numeric = Number(value);
-    if (Number.isFinite(numeric) && numeric > 0) {
-      return numeric;
-    }
-
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) {
-      return parsed;
-    }
-  }
-
-  return Date.now();
 }
 
 function createMessage(role: Message['role'], content: string, isError = false): Message {
@@ -106,8 +91,8 @@ async function startAudioCapture(
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
-        sampleRate: 16000,
-        channelCount: 1
+        sampleRate: AUDIO_RUNTIME_CONFIG.sampleRate,
+        channelCount: AUDIO_RUNTIME_CONFIG.channelCount
       }
     });
     logToTerminal('log', '[AUDIO] Mic stream active', {
@@ -133,7 +118,9 @@ async function startAudioCapture(
           .map((device) => ({ label: device.label, id: device.deviceId.slice(0, 8) }))
       );
       const blackholeDevice = devices.find(
-        (device) => device.kind === 'audioinput' && device.label.toLowerCase().includes('blackhole')
+        (device) =>
+          device.kind === 'audioinput' &&
+          device.label.toLowerCase().includes(AUDIO_RUNTIME_CONFIG.blackholeDeviceMatch)
       );
 
       if (blackholeDevice) {
@@ -149,7 +136,7 @@ async function startAudioCapture(
               echoCancellation: false,
               noiseSuppression: false,
               autoGainControl: false,
-              channelCount: 1
+              channelCount: AUDIO_RUNTIME_CONFIG.channelCount
             }
           });
           logToTerminal('log', '[AUDIO] BlackHole stream active', {
@@ -177,7 +164,7 @@ async function startAudioCapture(
     return null;
   }
 
-  const audioCtx = new AudioContext({ sampleRate: 16000, latencyHint: 'interactive' });
+  const audioCtx = new AudioContext({ sampleRate: AUDIO_RUNTIME_CONFIG.sampleRate, latencyHint: 'interactive' });
   await audioCtx.resume().catch(() => undefined);
   logToTerminal('log', '[AUDIO] AudioContext ready', {
     sampleRate: audioCtx.sampleRate,
@@ -185,7 +172,7 @@ async function startAudioCapture(
   });
 
   try {
-    await audioCtx.audioWorklet.addModule('/audioWorklet.js');
+    await audioCtx.audioWorklet.addModule(AUDIO_RUNTIME_CONFIG.workletPath);
     logToTerminal('log', '[AUDIO] AudioWorklet module loaded');
   } catch (error) {
     logToTerminal('error', '[AUDIO] Failed to load AudioWorklet module', error);
@@ -208,7 +195,7 @@ async function startAudioCapture(
     bytesThisSecond += byteArray.length;
 
     const now = Date.now();
-    if (now - lastBytesReport >= 1000) {
+    if (now - lastBytesReport >= AUDIO_RUNTIME_CONFIG.levelLogIntervalMs) {
       logToTerminal('log', `[AUDIO] Worklet PCM throughput: ${bytesThisSecond} bytes/s`);
       onStatusUpdate({ pcmBytesPerSec: bytesThisSecond });
       bytesThisSecond = 0;
@@ -221,7 +208,7 @@ async function startAudioCapture(
   if (micStream) {
     const micSource = audioCtx.createMediaStreamSource(micStream);
     const micAnalyser = audioCtx.createAnalyser();
-    micAnalyser.fftSize = 1024;
+    micAnalyser.fftSize = AUDIO_RUNTIME_CONFIG.analyserFftSize;
     micSource.connect(micAnalyser);
     micSource.connect(workletNode);
     meterNodes.push({ analyser: micAnalyser, label: 'mic' });
@@ -230,7 +217,7 @@ async function startAudioCapture(
   if (systemStream) {
     const systemSource = audioCtx.createMediaStreamSource(systemStream);
     const systemAnalyser = audioCtx.createAnalyser();
-    systemAnalyser.fftSize = 1024;
+    systemAnalyser.fftSize = AUDIO_RUNTIME_CONFIG.analyserFftSize;
     systemSource.connect(systemAnalyser);
     systemSource.connect(workletNode);
     meterNodes.push({ analyser: systemAnalyser, label: 'blackhole' });
@@ -247,9 +234,12 @@ async function startAudioCapture(
         const data = new Float32Array(meter.analyser.fftSize);
         meter.analyser.getFloatTimeDomainData(data);
         const level = rmsLevel(data);
-        logToTerminal('log', `[AUDIO] ${meter.label} rms=${level.toFixed(5)} active=${level > 0.005}`);
+        logToTerminal(
+          'log',
+          `[AUDIO] ${meter.label} rms=${level.toFixed(5)} active=${level > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold}`
+        );
       }
-    }, 1000);
+    }, AUDIO_RUNTIME_CONFIG.levelLogIntervalMs);
   }
 
   return {
@@ -273,7 +263,7 @@ function startAudioCaptureFallback(
   onStatusUpdate: (status: AudioDiagnosticStatus) => void
 ): AudioCaptureController {
   logToTerminal('warn', '[AUDIO] Using ScriptProcessor fallback');
-  const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  const processor = audioCtx.createScriptProcessor(4096, AUDIO_RUNTIME_CONFIG.channelCount, AUDIO_RUNTIME_CONFIG.channelCount);
   const sink = audioCtx.createGain();
   sink.gain.value = 0;
   const meterNodes: Array<{ analyser: AnalyserNode; label: string }> = [];
@@ -294,7 +284,7 @@ function startAudioCaptureFallback(
     accumulator.push(int16);
     const now = Date.now();
 
-    if (now - lastSend >= 200) {
+    if (now - lastSend >= AUDIO_RUNTIME_CONFIG.fallbackFlushIntervalMs) {
       const totalLength = accumulator.reduce((sum, chunk) => sum + chunk.length, 0);
       const merged = new Int16Array(totalLength);
       let offset = 0;
@@ -309,7 +299,7 @@ function startAudioCaptureFallback(
       window.electronAPI.pushAudioChunk(bytes);
     }
 
-    if (now - lastBytesReport >= 1000) {
+    if (now - lastBytesReport >= AUDIO_RUNTIME_CONFIG.levelLogIntervalMs) {
       logToTerminal('log', `[AUDIO] Fallback PCM throughput: ${bytesThisSecond} bytes/s`);
       onStatusUpdate({ pcmBytesPerSec: bytesThisSecond });
       bytesThisSecond = 0;
@@ -320,7 +310,7 @@ function startAudioCaptureFallback(
   if (micStream) {
     const micSource = audioCtx.createMediaStreamSource(micStream);
     const micAnalyser = audioCtx.createAnalyser();
-    micAnalyser.fftSize = 1024;
+    micAnalyser.fftSize = AUDIO_RUNTIME_CONFIG.analyserFftSize;
     micSource.connect(micAnalyser);
     micSource.connect(processor);
     meterNodes.push({ analyser: micAnalyser, label: 'mic' });
@@ -329,7 +319,7 @@ function startAudioCaptureFallback(
   if (systemStream) {
     const systemSource = audioCtx.createMediaStreamSource(systemStream);
     const systemAnalyser = audioCtx.createAnalyser();
-    systemAnalyser.fftSize = 1024;
+    systemAnalyser.fftSize = AUDIO_RUNTIME_CONFIG.analyserFftSize;
     systemSource.connect(systemAnalyser);
     systemSource.connect(processor);
     meterNodes.push({ analyser: systemAnalyser, label: 'blackhole' });
@@ -344,9 +334,12 @@ function startAudioCaptureFallback(
         const data = new Float32Array(meter.analyser.fftSize);
         meter.analyser.getFloatTimeDomainData(data);
         const level = rmsLevel(data);
-        logToTerminal('log', `[AUDIO] ${meter.label} rms=${level.toFixed(5)} active=${level > 0.005}`);
+        logToTerminal(
+          'log',
+          `[AUDIO] ${meter.label} rms=${level.toFixed(5)} active=${level > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold}`
+        );
       }
-    }, 1000);
+    }, AUDIO_RUNTIME_CONFIG.levelLogIntervalMs);
   }
 
   return {
@@ -416,7 +409,7 @@ export default function App() {
     }
 
     void window.electronAPI.updateContentDimensions({
-      width: 720,
+      width: WINDOW_CONFIG.overlay.width,
       height: root.scrollHeight
     });
   };
@@ -567,9 +560,12 @@ export default function App() {
       try {
         const stream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            frameRate: { ideal: 1, max: 2 },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            frameRate: {
+              ideal: SCREEN_CAPTURE_CONFIG.frameRateIdeal,
+              max: SCREEN_CAPTURE_CONFIG.frameRateMax
+            },
+            width: { ideal: SCREEN_CAPTURE_CONFIG.widthIdeal },
+            height: { ideal: SCREEN_CAPTURE_CONFIG.heightIdeal }
           },
           audio: isMac
             ? false
@@ -613,9 +609,9 @@ export default function App() {
       }
 
       context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.5); // was 0.72 — reduced for 5x capture rate
+      const dataUrl = canvas.toDataURL('image/jpeg', SCREEN_CAPTURE_CONFIG.previewJpegQuality);
       screenContextRef.current = dataUrl.replace(/^data:image\/jpeg;base64,/, '');
-    }, 200); // was 1000 — now captures 5x more frequently for fresher screen context
+    }, SCREEN_CAPTURE_CONFIG.previewIntervalMs);
 
     void startScreenPreview();
 

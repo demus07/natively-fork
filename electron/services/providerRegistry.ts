@@ -4,6 +4,7 @@ import { DeepgramProvider } from '../providers/DeepgramProvider';
 import { GeminiProvider } from '../providers/GeminiProvider';
 import { OllamaProvider } from '../providers/OllamaProvider';
 import { WhisperProvider } from '../providers/WhisperProvider';
+import { AI_RUNTIME_CONFIG, PROVIDER_DEFAULTS } from '../../src/config';
 
 export interface ProviderSettings {
   llmProvider: 'ollama' | 'gemini';
@@ -29,14 +30,14 @@ class ProviderRegistry {
     if (settings.llmProvider === 'gemini' && settings.geminiApiKey) {
       this.llm = new GeminiProvider({
         apiKey: settings.geminiApiKey,
-        model: settings.geminiModel || 'gemini-2.5-flash'
+        model: settings.geminiModel || PROVIDER_DEFAULTS.geminiModel
       });
     } else {
       this.llm = new OllamaProvider({
-        endpoint: settings.ollamaEndpoint || 'http://192.168.29.234:11434',
-        model: settings.ollamaModel || 'qwen3.5:35b',
-        numCtx: 8192,
-        maxTokens: 2048
+        endpoint: settings.ollamaEndpoint || PROVIDER_DEFAULTS.ollamaEndpoint,
+        model: settings.ollamaModel || PROVIDER_DEFAULTS.ollamaModel,
+        numCtx: AI_RUNTIME_CONFIG.ollamaContextWindow,
+        maxTokens: AI_RUNTIME_CONFIG.ollamaMaxTokens
       });
     }
 
@@ -48,14 +49,14 @@ class ProviderRegistry {
     if (settings.sttProvider === 'deepgram' && settings.deepgramApiKey) {
       this.stt = new DeepgramProvider({
         apiKey: settings.deepgramApiKey,
-        model: settings.deepgramModel || 'nova-2-meeting'
+        model: settings.deepgramModel || PROVIDER_DEFAULTS.deepgramModel
       });
     } else {
       this.stt = new WhisperProvider({
-        model: settings.whisperModel || 'turbo',
-        language: settings.whisperLanguage || 'en',
-        computeType: settings.whisperComputeType || 'int8',
-        device: settings.whisperDevice || 'cpu',
+        model: settings.whisperModel || PROVIDER_DEFAULTS.whisperModel,
+        language: settings.whisperLanguage || PROVIDER_DEFAULTS.whisperLanguage,
+        computeType: settings.whisperComputeType || PROVIDER_DEFAULTS.whisperComputeType,
+        device: settings.whisperDevice || PROVIDER_DEFAULTS.whisperDevice,
         pythonBin: settings.whisperPythonBin || ''
       });
     }
@@ -75,10 +76,6 @@ class ProviderRegistry {
       throw new Error('STT provider not initialised — complete setup first');
     }
     return this.stt;
-  }
-
-  isReady(): boolean {
-    return this.llm !== null && this.stt !== null;
   }
 }
 

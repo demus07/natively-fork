@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, X } from 'lucide-react';
+import { APP_METADATA, PROVIDER_DEFAULTS, UI_LIMITS } from '../../src/config';
 import { useSettings } from '../hooks/useSettings';
 import type { Settings } from '../types';
 
@@ -141,23 +142,26 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           <input
             className="settings-input"
             type="number"
-            min={5}
-            max={50}
+            min={UI_LIMITS.rollingContextMin}
+            max={UI_LIMITS.rollingContextMax}
             value={draft.rollingContextSize}
             onChange={(event) =>
               setDraft((current) => ({
                 ...current,
-                rollingContextSize: Math.max(5, Math.min(50, Number(event.target.value) || 20))
+                rollingContextSize: Math.max(
+                  UI_LIMITS.rollingContextMin,
+                  Math.min(UI_LIMITS.rollingContextMax, Number(event.target.value) || UI_LIMITS.rollingContextDefault)
+                )
               }))
             }
           />
         </label>
 
         <div className="settings-section-title">About</div>
-        <div className="settings-help-text">Version 1.0.0</div>
+        <div className="settings-help-text">Version {APP_METADATA.version}</div>
         <a
           className="settings-link"
-          href="https://github.com/evinjohnn/natively-cluely-ai-assistant"
+          href={APP_METADATA.referenceRepository}
           target="_blank"
           rel="noreferrer"
         >
@@ -168,7 +172,9 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
           <p style={{ fontSize: '13px', fontWeight: 500, marginBottom: '8px' }}>AI Providers</p>
           <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '4px' }}>
             LLM: {draft.llmProvider || 'ollama'} —{' '}
-            {draft.llmProvider === 'gemini' ? draft.geminiModel || 'gemini-2.5-flash' : draft.ollamaModel || 'qwen3.5:35b'}
+            {draft.llmProvider === 'gemini'
+              ? draft.geminiModel || PROVIDER_DEFAULTS.geminiModel
+              : draft.ollamaModel || PROVIDER_DEFAULTS.ollamaModel}
           </p>
           <p style={{ fontSize: '12px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
             STT: {draft.sttProvider || 'whisper'}

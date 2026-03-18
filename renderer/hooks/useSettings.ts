@@ -1,29 +1,8 @@
 import { useEffect, useState } from 'react';
+import { SETTINGS_DEFAULTS } from '../../src/config';
 import type { Settings } from '../types';
 
-const defaultSettings: Settings = {
-  aiProvider: 'codex',
-  llmProvider: 'ollama',
-  geminiApiKey: '',
-  geminiModel: 'gemini-2.5-flash',
-  ollamaEndpoint: 'http://192.168.29.234:11434',
-  ollamaModel: 'qwen3.5:35b',
-  sttProvider: 'whisper',
-  deepgramApiKey: '',
-  deepgramModel: 'nova-2-meeting',
-  googleServiceAccountPath: '',
-  codexModel: 'codex-4',
-  codexExtraFlags: '',
-  transcriptLanguage: 'en',
-  whisperModel: 'turbo',
-  whisperLanguage: 'en',
-  whisperComputeType: 'int8',
-  whisperDevice: 'cpu',
-  whisperPythonBin: '',
-  windowOpacity: 0.9,
-  rollingContextSize: 20,
-  includeOverlayInScreenshots: false
-};
+const defaultSettings: Settings = SETTINGS_DEFAULTS;
 
 export function useSettings() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);

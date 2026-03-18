@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import WebSocket from 'ws';
+import { STT_RUNTIME_CONFIG } from '../../src/config';
 import type { STTProvider, STTTestResult } from './STTProvider';
 
 export interface DeepgramConfig {
@@ -7,7 +8,7 @@ export interface DeepgramConfig {
   model: string;
 }
 
-const DEEPGRAM_URL_BASE = 'wss://api.deepgram.com/v1/listen';
+const DEEPGRAM_URL_BASE = STT_RUNTIME_CONFIG.deepgram.endpoint;
 
 export class DeepgramProvider extends EventEmitter implements STTProvider {
   readonly name = 'deepgram';
@@ -20,17 +21,17 @@ export class DeepgramProvider extends EventEmitter implements STTProvider {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private keepaliveTimer: NodeJS.Timeout | null = null;
   private reconnectAttempts = 0;
-  private readonly MAX_RECONNECT = 10;
-  private readonly RECONNECT_DELAY = 1500;
-  private readonly KEEPALIVE_MS = 8000;
-  private readonly MAX_PENDING = 50;
+  private readonly MAX_RECONNECT = STT_RUNTIME_CONFIG.deepgram.maxReconnectAttempts;
+  private readonly RECONNECT_DELAY = STT_RUNTIME_CONFIG.deepgram.reconnectDelayMs;
+  private readonly KEEPALIVE_MS = STT_RUNTIME_CONFIG.deepgram.keepaliveMs;
+  private readonly MAX_PENDING = STT_RUNTIME_CONFIG.deepgram.maxPendingChunks;
 
   constructor(private readonly config: DeepgramConfig) {
     super();
   }
 
   private get url(): string {
-    return `${DEEPGRAM_URL_BASE}?encoding=linear16&sample_rate=16000&model=${this.config.model}&language=en-US&channels=1&interim_results=true&smart_format=true&endpointing=100`;
+    return `${DEEPGRAM_URL_BASE}?encoding=linear16&sample_rate=${STT_RUNTIME_CONFIG.sampleRate}&model=${this.config.model}&language=${STT_RUNTIME_CONFIG.deepgram.language}&channels=1&interim_results=true&smart_format=true&endpointing=${STT_RUNTIME_CONFIG.deepgram.endpointingMs}`;
   }
 
   start(): void {
@@ -199,7 +200,7 @@ export class DeepgramProvider extends EventEmitter implements STTProvider {
         return;
       }
       const ws = new WebSocket(
-        `${DEEPGRAM_URL_BASE}?encoding=linear16&sample_rate=16000&model=${this.config.model}`,
+        `${DEEPGRAM_URL_BASE}?encoding=linear16&sample_rate=${STT_RUNTIME_CONFIG.sampleRate}&model=${this.config.model}`,
         { headers: { Authorization: `Token ${this.config.apiKey}` } }
       );
       const timeout = setTimeout(() => {

@@ -1,5 +1,6 @@
 import type { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
+import { AI_RUNTIME_CONFIG } from '../../src/config';
 import type { LLMProvider, LLMTestResult } from './LLMProvider';
 
 export interface OllamaConfig {
@@ -35,18 +36,18 @@ export class OllamaProvider implements LLMProvider {
       model: this.config.model,
       messages: [{ role: 'user', content }],
       stream: true,
-      temperature: 0.2,
-      max_tokens: this.config.maxTokens ?? 2048,
+      temperature: AI_RUNTIME_CONFIG.ollamaTemperature,
+      max_tokens: this.config.maxTokens ?? AI_RUNTIME_CONFIG.ollamaMaxTokens,
       thinking: false,
       options: {
         think: false,
-        num_ctx: this.config.numCtx ?? 8192
+        num_ctx: this.config.numCtx ?? AI_RUNTIME_CONFIG.ollamaContextWindow
       }
     };
 
     let fullText = '';
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutId = setTimeout(() => controller.abort(), AI_RUNTIME_CONFIG.ollamaRequestTimeoutMs);
 
     try {
       let response: Response;

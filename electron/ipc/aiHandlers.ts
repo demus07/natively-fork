@@ -1,5 +1,6 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
+import { AI_RUNTIME_CONFIG } from '../../src/config';
 import type { AIPayload, Message } from '../../renderer/types';
 import { routeAIRequest } from '../services/aiRouter';
 import { registry } from '../services/providerRegistry';
@@ -30,7 +31,7 @@ export function initAIHandlers(
         });
         screenshot = await Promise.race([
           screenshotPromise,
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500))
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), AI_RUNTIME_CONFIG.screenshotCaptureTimeoutMs))
         ]);
       } else if (!registry.getLLM().supportsVision) {
         screenshot = null;

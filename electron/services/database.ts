@@ -2,35 +2,14 @@ import path from 'path';
 import Database from 'better-sqlite3';
 import { app } from 'electron';
 import type { Settings, UsageStats } from '../../renderer/types';
+import { SETTINGS_DEFAULTS } from '../../src/config';
 
 type SettingRecord = {
   key: keyof Settings;
   value: string;
 };
 
-const DEFAULT_SETTINGS: Settings = {
-  aiProvider: 'codex',
-  llmProvider: 'ollama',
-  geminiApiKey: '',
-  geminiModel: 'gemini-2.5-flash',
-  ollamaEndpoint: 'http://192.168.29.234:11434',
-  ollamaModel: 'qwen3.5:35b',
-  sttProvider: 'whisper',
-  deepgramApiKey: '',
-  deepgramModel: 'nova-2-meeting',
-  googleServiceAccountPath: '',
-  codexModel: 'codex-4',
-  codexExtraFlags: '',
-  transcriptLanguage: 'en',
-  whisperModel: 'turbo',
-  whisperLanguage: 'en',
-  whisperComputeType: 'int8',
-  whisperDevice: 'cpu',
-  whisperPythonBin: '',
-  windowOpacity: 0.9,
-  rollingContextSize: 20,
-  includeOverlayInScreenshots: false
-};
+const DEFAULT_SETTINGS: Settings = SETTINGS_DEFAULTS;
 
 let db: Database.Database | null = null;
 let settingsCache: Settings = { ...DEFAULT_SETTINGS };
@@ -168,21 +147,6 @@ export function getMessages(sessionId?: string, limit = 100) {
 
 export function clearMessages(): void {
   getDb().prepare('DELETE FROM messages').run();
-}
-
-export function getSetting<K extends keyof Settings>(key: K): Settings[K] | null {
-  return settingsCache[key] ?? null;
-}
-
-export function saveSetting<K extends keyof Settings>(key: K, value: Settings[K]): void {
-  getDb()
-    .prepare(
-      `INSERT INTO settings (key, value)
-       VALUES (?, ?)
-       ON CONFLICT(key) DO UPDATE SET value = excluded.value`
-    )
-    .run(key, JSON.stringify(value));
-  settingsCache = { ...settingsCache, [key]: value };
 }
 
 export function getAllSettings(): Settings {

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, app } from 'electron';
 import isDev from 'electron-is-dev';
+import { WINDOW_CONFIG } from '../src/config';
 
 let setupWindow: BrowserWindow | null = null;
 const __filename = fileURLToPath(import.meta.url);
@@ -15,8 +16,8 @@ export function createSetupWindow(): BrowserWindow {
   }
 
   setupWindow = new BrowserWindow({
-    width: 620,
-    height: 740,
+    width: WINDOW_CONFIG.setup.width,
+    height: WINDOW_CONFIG.setup.height,
     frame: true,
     transparent: false,
     resizable: false,
