@@ -160,12 +160,12 @@ function resetOverlayLifecycle(): void {
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: WINDOW_CONFIG.overlay.width,
-    height: 520,
+    height: 560,
     y: 40,
     minWidth: WINDOW_CONFIG.overlay.minWidth,
     minHeight: 60,
     maxWidth: WINDOW_CONFIG.overlay.width,
-    maxHeight: 520,
+    maxHeight: 560,
     frame: false,
     transparent: true,
     backgroundColor: WINDOW_CONFIG.overlay.backgroundColor,

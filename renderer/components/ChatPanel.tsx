@@ -32,14 +32,14 @@ export default function ChatPanel({ messages, isStreaming, onCopyMessage }: Chat
 
   if (!hasVisibleMessages) {
     return (
-      <div className="hud-response-card hud-response-empty">
+      <div className="hud-response-card hud-response-empty ask-panel-messages">
         <span>Ask anything on screen or conversation</span>
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="hud-response-card msg-enter">
+    <div ref={containerRef} className="hud-response-card msg-enter ask-panel-messages ask-panel-scroll">
       {renderedMessages.map((message, index) => {
         if (message.role === 'user') {
           return (
@@ -60,7 +60,7 @@ export default function ChatPanel({ messages, isStreaming, onCopyMessage }: Chat
         const isLastAssistant = index === renderedMessages.length - 1;
 
         return (
-          <div key={message.id} className="msg-ai hud-msg-ai msg-enter">
+          <div key={message.id} className={`msg-ai hud-msg-ai msg-enter ${isStreaming && isLastAssistant ? 'streaming' : ''}`}>
             <div className="msg-ai-content chat-selectable hud-msg-ai-content">
               <ReactMarkdown
                 components={{

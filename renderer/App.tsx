@@ -866,7 +866,10 @@ export default function App() {
               <img src="/logo.png" alt="Sync." className="overlay-avatar-img" />
             </div>
             <TitleBar
+              hasRecentAudio={hasRecentAudio}
+              isMicActive={micActive}
               isRecording={isRecording}
+              showAskAction={!isAskOpen}
               onAsk={() => setIsAskOpen(true)}
               onAnswer={() => void handleQuickAction('answer_now')}
               onInsights={() => void handleInsights()}
@@ -877,7 +880,20 @@ export default function App() {
             />
           </div>
           <div ref={glassBodyRef} className={`ask-panel ${shouldShowAskPanel ? 'ask-panel--open' : ''}`}>
-            <div className="ask-panel-response">
+            <div className="ask-panel-header">
+              <span className="ask-panel-title">Ask Sync</span>
+              <div className="ask-panel-header-actions">
+                <button
+                  type="button"
+                  className="ask-panel-close"
+                  onClick={() => setIsAskOpen(false)}
+                  title="Close chat"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+            <div className="ask-panel-response ask-panel-body">
               {messages.some((message) => message.role === 'assistant' || message.role === 'user' || message.role === 'system') ? (
                 <ChatPanel messages={messages} isStreaming={isStreaming} onCopyMessage={(text) => void handleCopy(text)} />
               ) : null}
@@ -893,7 +909,7 @@ export default function App() {
                       value={askInput}
                       onChange={(event) => setAskInput(event.target.value)}
                       onKeyDown={(event) => {
-                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                        if (event.key === 'Enter' && !event.shiftKey) {
                           event.preventDefault();
                           void handleAskSubmit();
                         }

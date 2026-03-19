@@ -2,7 +2,10 @@ import type { CSSProperties } from 'react';
 import { ChevronDown, Lightbulb, Mic, Pause, Sparkles } from 'lucide-react';
 
 interface TitleBarProps {
+  hasRecentAudio: boolean;
+  isMicActive: boolean;
   isRecording: boolean;
+  showAskAction: boolean;
   onAsk: () => void;
   onAnswer: () => void;
   onInsights: () => void;
@@ -13,7 +16,10 @@ interface TitleBarProps {
 }
 
 export default function TitleBar({
+  hasRecentAudio,
+  isMicActive,
   isRecording,
+  showAskAction,
   onAsk,
   onAnswer,
   onInsights,
@@ -33,33 +39,27 @@ export default function TitleBar({
   return (
     <div className="top-pill drag-region">
       <div className="titlebar-left">
-        <button
-          type="button"
-          className={`pill-audio-btn no-drag ${isRecording ? 'pill-audio-btn--active' : 'pill-audio-btn--muted'}`}
-          onClick={onToggleMic}
-          title={isRecording ? 'Stop listening' : 'Start listening'}
-        >
-          <span className="audio-pulse-dot" />
-          <span className="audio-pulse-ring" />
-          <span className="audio-pulse-ring audio-pulse-ring--delayed" />
-        </button>
-        <button
-          type="button"
-          className="pill-action-btn no-drag"
-          onClick={onInsights}
-          title="Insights"
-        >
-          <Lightbulb size={12} />
-          <span>Insights</span>
-        </button>
-        <button type="button" className="pill-action-btn no-drag" onClick={onAsk} title="Ask AI">
-          <Sparkles size={12} />
-          <span>Ask</span>
-        </button>
-        <button type="button" className="pill-action-btn pill-answer-btn no-drag" onClick={onAnswer} title="Answer now">
-          <span>⚡</span>
-          <span>Answer</span>
-        </button>
+        <div className="pill-action-group">
+          <button
+            type="button"
+            className="pill-action-btn no-drag"
+            onClick={onInsights}
+            title="Insights"
+          >
+            <Lightbulb size={12} />
+            <span>Insights</span>
+          </button>
+          {showAskAction ? (
+            <button type="button" className="pill-action-btn no-drag" onClick={onAsk} title="Ask AI">
+              <Sparkles size={12} />
+              <span>Ask</span>
+            </button>
+          ) : null}
+          <button type="button" className="pill-action-btn pill-answer-btn no-drag" onClick={onAnswer} title="Answer now">
+            <span className="icon">⚡</span>
+            <span>Answer</span>
+          </button>
+        </div>
       </div>
       <div className="titlebar-right">
         <div className="pill-divider" />
@@ -71,18 +71,17 @@ export default function TitleBar({
         >
           {isRecording ? <Pause size={12} /> : <Mic size={12} />}
         </button>
-        <button
-          type="button"
-          className="pill-icon-btn pill-waveform-btn no-drag"
-          onClick={onHide}
-          title="More"
-        >
-          <span className="waveform">
-            {waveformBars.map((barStyle, index) => (
-              <span key={index} className="waveform-bar" style={barStyle} />
-            ))}
-          </span>
-        </button>
+        <div className="pill-waveform-indicator">
+          {isMicActive && hasRecentAudio ? (
+            <span className="waveform">
+              {waveformBars.map((barStyle, index) => (
+                <span key={index} className="waveform-bar" style={barStyle} />
+              ))}
+            </span>
+          ) : (
+            <span className="pill-static-dots">···</span>
+          )}
+        </div>
         <button
           type="button"
           className="pill-icon-btn pill-hide-btn no-drag"

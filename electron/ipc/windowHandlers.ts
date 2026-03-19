@@ -32,7 +32,7 @@ export function initWindowHandlers(mainWindow: BrowserWindow): void {
     const width = Math.max(720, Math.ceil(dimensions.width));
     const height = Math.max(120, Math.ceil(dimensions.height));
     const clampedWidth = Math.min(width, 720);
-    const clampedHeight = Math.min(height, 520);
+    const clampedHeight = Math.min(height, 560);
     const [currentX, currentY] = mainWindow.getPosition();
     const [, currentHeight] = mainWindow.getContentSize();
     if (Math.abs(currentHeight - clampedHeight) > 4) {
