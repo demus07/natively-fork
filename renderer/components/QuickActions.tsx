@@ -7,10 +7,6 @@ interface QuickActionsProps {
 }
 
 const ACTIONS: Array<{ id: ActionType; label: string }> = [
-  { id: 'answer', label: '✏️ What to answer?' },
-  { id: 'shorten', label: '💬 Shorten' },
-  { id: 'recap', label: '🔄 Recap' },
-  { id: 'followup', label: '❓ Follow Up Question' },
   { id: 'answer_now', label: '⚡ Answer' }
 ];
 

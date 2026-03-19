@@ -80,9 +80,12 @@ function normalizeCodexModel(model?: string): string {
 
 function centerOverlayWindow(window: BrowserWindow): void {
   const display = screen.getPrimaryDisplay();
+  const MENU_BAR_HEIGHT = 24;
+  const TOP_SAFE_BUFFER = 16;
+  const safeY = display.workArea.y + MENU_BAR_HEIGHT + TOP_SAFE_BUFFER;
   const x = display.workArea.x + Math.round((display.workArea.width - WINDOW_CONFIG.overlay.width) / 2);
-  const y = display.workArea.y + Math.round((display.workArea.height - WINDOW_CONFIG.overlay.height) / 2);
-  window.setPosition(x, y);
+  const centeredY = display.workArea.y + Math.round((display.workArea.height - WINDOW_CONFIG.overlay.height) / 2);
+  window.setPosition(x, Math.max(safeY, centeredY));
 }
 
 function loadRendererPage(window: BrowserWindow, page: 'index' | 'setup'): void {
@@ -157,11 +160,12 @@ function resetOverlayLifecycle(): void {
 function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
     width: WINDOW_CONFIG.overlay.width,
-    height: WINDOW_CONFIG.overlay.height,
+    height: 520,
+    y: 40,
     minWidth: WINDOW_CONFIG.overlay.minWidth,
-    minHeight: WINDOW_CONFIG.overlay.minHeight,
+    minHeight: 60,
     maxWidth: WINDOW_CONFIG.overlay.width,
-    maxHeight: WINDOW_CONFIG.overlay.maxHeight,
+    maxHeight: 520,
     frame: false,
     transparent: true,
     backgroundColor: WINDOW_CONFIG.overlay.backgroundColor,
@@ -169,6 +173,7 @@ function createMainWindow(): BrowserWindow {
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
+    useContentSize: true,
     maximizable: false,
     fullscreenable: false,
     hasShadow: false,

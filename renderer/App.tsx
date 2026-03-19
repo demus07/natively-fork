@@ -5,10 +5,8 @@ import {
   WINDOW_CONFIG
 } from '../src/config';
 import ChatPanel from './components/ChatPanel';
-import QuickActions from './components/QuickActions';
 import SettingsModal from './components/SettingsModal';
 import TitleBar from './components/TitleBar';
-import TranscriptPanel from './components/TranscriptPanel';
 import { useAI } from './hooks/useAI';
 import { useAudio } from './hooks/useAudio';
 import { useScreenshot } from './hooks/useScreenshot';
@@ -359,6 +357,9 @@ function startAudioCaptureFallback(
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isAskOpen, setIsAskOpen] = useState(false);
+  const [askInput, setAskInput] = useState('');
+  const [hasRecentAudio, setHasRecentAudio] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
@@ -374,7 +375,7 @@ export default function App() {
   const { isRecording, startRecording, stopRecording } = useAudio();
   const { finalLines, interimText } = useTranscript();
   const { captureFull } = useScreenshot();
-  const { settings, setSettings, saveSettings } = useSettings();
+  const { settings, setSettings } = useSettings();
 
   const transcriptRef = useRef('');
   const screenContextRef = useRef<string | null>(null);
@@ -390,6 +391,8 @@ export default function App() {
   const aiDrainTimerRef = useRef<number | null>(null);
   const aiCompletePendingRef = useRef(false);
   const aiErrorPendingRef = useRef<string | null>(null);
+  const askInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const audioTimeoutRef = useRef<number | null>(null);
 
   const flushAIState = () => {
     if (aiDrainTimerRef.current) {
@@ -477,7 +480,31 @@ export default function App() {
         whisperPreview: transcript.trim().split('\n').at(-1)?.slice(0, 60) ?? ''
       });
     }
-  }, [finalLines]);
+
+    if (transcript.trim() || interimText.trim()) {
+      setHasRecentAudio(true);
+      if (audioTimeoutRef.current) {
+        window.clearTimeout(audioTimeoutRef.current);
+      }
+      audioTimeoutRef.current = window.setTimeout(() => {
+        setHasRecentAudio(false);
+      }, 1200);
+    }
+  }, [finalLines, interimText]);
+
+  useEffect(() => {
+    return () => {
+      if (audioTimeoutRef.current) {
+        window.clearTimeout(audioTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isAskOpen) {
+      askInputRef.current?.focus();
+    }
+  }, [isAskOpen]);
 
   useEffect(() => {
     if (typeof settings?.windowOpacity === 'number') {
@@ -734,6 +761,7 @@ export default function App() {
   };
 
   const handleQuickAction = async (type: ActionType) => {
+    setIsAskOpen(true);
     const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant')?.content ?? '';
     const requestType: AIRequestType = type === 'answer_now' ? 'custom' : (type as AIRequestType);
     const userMessage = type === 'answer_now' ? 'Answer using the current context.' : type === 'shorten' ? latestAssistant : undefined;
@@ -758,6 +786,42 @@ export default function App() {
     await navigator.clipboard.writeText(text);
   };
 
+  const handleAskSubmit = async () => {
+    const trimmed = askInput.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    setIsAskOpen(true);
+    flushAIState();
+    setActiveAction(null);
+    setIsStreaming(true);
+    setMessages((current) => [
+      ...current,
+      createMessage('user', trimmed),
+      createMessage('assistant', '')
+    ]);
+    setAskInput('');
+
+    await sendAI({
+      type: 'custom',
+      userMessage: trimmed
+    });
+  };
+
+  const handleInsights = async () => {
+    setIsAskOpen(true);
+    flushAIState();
+    setActiveAction('answer');
+    setIsStreaming(true);
+    setMessages((current) => [...current, createMessage('assistant', '')]);
+    await sendAI({
+      type: 'custom',
+      userMessage:
+        'Based on the conversation so far, what are the key insights? Summarize the main points, any decisions made, and what I should be aware of.'
+    });
+  };
+
   const whisperLabel = diagnostic.whisperStatus === 'running'
     ? 'ready'
     : diagnostic.whisperStatus === 'starting'
@@ -765,8 +829,7 @@ export default function App() {
       : diagnostic.whisperStatus || 'waiting';
   const micActive = diagnostic.mic === 'active' && isRecording;
   const blackholeActive = diagnostic.blackhole === 'active' && (diagnostic.pcmBytesPerSec ?? 0) > 0;
-  const latestAssistant = [...messages].reverse().find((message) => message.role === 'assistant' && message.content.trim());
-  const hasExpandedAnswer = Boolean(isStreaming || latestAssistant);
+  const shouldShowAskPanel = isAskOpen;
 
   const handleToggleRecording = async () => {
     if (isRecording) {
@@ -794,36 +857,63 @@ export default function App() {
     audioControllerRef.current = controller;
   };
 
-  const handleToggleScreenshotOverlay = async () => {
-    const next = !settings.includeOverlayInScreenshots;
-    const nextSettings = { ...settings, includeOverlayInScreenshots: next };
-    setSettings(nextSettings);
-    await window.electronAPI.setScreenshotOverlayVisibility?.(next);
-    await saveSettings(nextSettings);
-  };
-
   return (
     <div className="app-shell">
-      <div className="overlay-column">
+      <div className={`overlay-column ${hasRecentAudio ? 'overlay--speaking' : 'overlay--silent'}`}>
         <div id="overlay-root" ref={overlayRootRef} className="overlay-shell">
-          <TitleBar
-            isRecording={isRecording}
-            includeOverlayInScreenshots={settings.includeOverlayInScreenshots}
-            onEndAndReview={() => void window.electronAPI.endSessionAndReview?.()}
-            onHide={() => void window.electronAPI.hideWindow()}
-            onToggleRecording={() => void handleToggleRecording()}
-            onToggleScreenshotOverlay={() => void handleToggleScreenshotOverlay()}
-          />
-          {hasExpandedAnswer ? (
-            <ChatPanel messages={messages} isStreaming={isStreaming} onCopyMessage={(text) => void handleCopy(text)} />
-          ) : null}
-          <div ref={glassBodyRef} className="glass-body">
-            <QuickActions
-              onAction={(type) => void handleQuickAction(type)}
-              isStreaming={isStreaming}
-              activeAction={activeAction}
+          <div className="pill-row">
+            <div className="overlay-avatar drag-region">
+              <img src="/logo.png" alt="Sync." className="overlay-avatar-img" />
+            </div>
+            <TitleBar
+              isRecording={isRecording}
+              onAsk={() => setIsAskOpen(true)}
+              onAnswer={() => void handleQuickAction('answer_now')}
+              onInsights={() => void handleInsights()}
+              onEndAndReview={() => void window.electronAPI.endSessionAndReview?.()}
+              onHide={() => void window.electronAPI.hideWindow()}
+              onPauseSession={() => undefined}
+              onToggleMic={() => void handleToggleRecording()}
             />
-            <TranscriptPanel />
+          </div>
+          <div ref={glassBodyRef} className={`ask-panel ${shouldShowAskPanel ? 'ask-panel--open' : ''}`}>
+            <div className="ask-panel-response">
+              {messages.some((message) => message.role === 'assistant' || message.role === 'user' || message.role === 'system') ? (
+                <ChatPanel messages={messages} isStreaming={isStreaming} onCopyMessage={(text) => void handleCopy(text)} />
+              ) : null}
+            </div>
+            <div className="ask-panel-inputrow">
+              <div className="inputbar-shell">
+                <div className="inputbar-row">
+                  <div className="hud-input-card">
+                    <textarea
+                      ref={askInputRef}
+                      className="ask-panel-input composer-input"
+                      placeholder="Ask Sync ⌘↵"
+                      value={askInput}
+                      onChange={(event) => setAskInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+                          event.preventDefault();
+                          void handleAskSubmit();
+                        }
+                      }}
+                      rows={1}
+                    />
+                  </div>
+                  <div className="hud-input-actions">
+                    <button
+                      type="button"
+                      className="ask-panel-send send-btn"
+                      title="Send"
+                      onClick={() => void handleAskSubmit()}
+                    >
+                      ↗
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
           {showDiagnostics ? (
             <div className="diagnostics-strip">

@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../src/shared';
 
 export function initWindowHandlers(mainWindow: BrowserWindow): void {
   let hasShownOnce = false;
+  const initialY = mainWindow.getBounds().y;
 
   ipcMain.handle(IPC_CHANNELS.hideWindow, () => {
     mainWindow.hide();
@@ -31,10 +32,16 @@ export function initWindowHandlers(mainWindow: BrowserWindow): void {
     const width = Math.max(720, Math.ceil(dimensions.width));
     const height = Math.max(120, Math.ceil(dimensions.height));
     const clampedWidth = Math.min(width, 720);
-    const clampedHeight = Math.min(height, 360);
+    const clampedHeight = Math.min(height, 520);
+    const [currentX, currentY] = mainWindow.getPosition();
     const [, currentHeight] = mainWindow.getContentSize();
     if (Math.abs(currentHeight - clampedHeight) > 4) {
-      mainWindow.setContentSize(clampedWidth, clampedHeight, false);
+      mainWindow.setBounds({
+        x: currentX,
+        y: initialY,
+        width: clampedWidth,
+        height: clampedHeight
+      }, true);
     }
     if (!hasShownOnce) {
       hasShownOnce = true;
