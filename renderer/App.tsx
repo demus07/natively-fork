@@ -381,7 +381,6 @@ export default function App() {
   const displayStreamRef = useRef<MediaStream | null>(null);
   const displayVideoRef = useRef<HTMLVideoElement | null>(null);
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const startupInitializedRef = useRef(false);
   const overlayRootRef = useRef<HTMLDivElement | null>(null);
   const glassBodyRef = useRef<HTMLDivElement | null>(null);
   const resizeDebounceRef = useRef<number | null>(null);
@@ -622,18 +621,21 @@ export default function App() {
   }, [captureFull]);
 
   useEffect(() => {
-    if (startupInitializedRef.current) {
-      return;
-    }
-
-    startupInitializedRef.current = true;
     let active = true;
 
     const bootAudio = async () => {
-      await startRecording().catch((error) => {
+      const recordingStarted = await startRecording().catch((error) => {
         const message = error instanceof Error ? error.message : 'Unable to start transcript backend.';
         appendUniqueSystemMessage(setMessages, message);
+        return false;
       });
+
+      if (!recordingStarted) {
+        if (active) {
+          updateDiagnostic(setDiagnostic, { mic: 'error', pcmBytesPerSec: 0, whisperStatus: 'error' });
+        }
+        return;
+      }
 
       const controller = await startAudioCapture((status) => {
         if (!active) {
@@ -641,6 +643,15 @@ export default function App() {
         }
         updateDiagnostic(setDiagnostic, status);
       });
+
+      if (!controller) {
+        await stopRecording().catch(() => undefined);
+        if (active) {
+          updateDiagnostic(setDiagnostic, { mic: 'error', pcmBytesPerSec: 0, whisperStatus: 'error' });
+          appendUniqueSystemMessage(setMessages, 'Unable to start microphone capture. Toggle the mic to retry.');
+        }
+        return;
+      }
 
       if (!active) {
         await controller?.stop?.();
@@ -664,8 +675,9 @@ export default function App() {
       active = false;
       void audioControllerRef.current?.stop?.();
       audioControllerRef.current = null;
+      void window.electronAPI.stopAudioCapture().catch(() => undefined);
     };
-  }, [captureFull, startRecording]);
+  }, [captureFull, startRecording, stopRecording]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -765,8 +777,20 @@ export default function App() {
       return;
     }
 
-    await startRecording();
+    const recordingStarted = await startRecording();
+    if (!recordingStarted) {
+      updateDiagnostic(setDiagnostic, { mic: 'error', pcmBytesPerSec: 0, whisperStatus: 'error' });
+      appendUniqueSystemMessage(setMessages, 'Unable to start transcript backend.');
+      return;
+    }
+
     const controller = await startAudioCapture((status) => updateDiagnostic(setDiagnostic, status));
+    if (!controller) {
+      await stopRecording();
+      updateDiagnostic(setDiagnostic, { mic: 'error', pcmBytesPerSec: 0, whisperStatus: 'error' });
+      appendUniqueSystemMessage(setMessages, 'Unable to start microphone capture. Toggle the mic to retry.');
+      return;
+    }
     audioControllerRef.current = controller;
   };
 

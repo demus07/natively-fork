@@ -37,35 +37,53 @@ export default function Sidebar({
   return (
     <aside className="dashboard-sidebar">
       <div className="dashboard-sidebar-header">
-        <div>
-          <p className="dashboard-eyebrow">Review</p>
-          <h1 className="dashboard-title">Sessions</h1>
+        <div className="dashboard-sidebar-brand">
+          <span className="dashboard-sidebar-brand-mark">N</span>
+          <div>
+            <h1 className="dashboard-title">Natively</h1>
+            <p className="dashboard-sidebar-subtitle">Session review</p>
+          </div>
         </div>
+
+        <button type="button" className="dashboard-sidebar-cta" disabled>
+          New session
+        </button>
       </div>
 
-      <button
-        type="button"
-        className={`dashboard-sidebar-link ${showHelperSettings ? 'dashboard-sidebar-link-active' : ''}`}
-        onClick={onSelectHelperSettings}
-      >
-        Helper Settings
-      </button>
+      <div className="dashboard-sidebar-section">
+        <p className="dashboard-sidebar-section-label">Workspace</p>
+        <button
+          type="button"
+          className={`dashboard-session-item dashboard-sidebar-link ${showHelperSettings ? 'dashboard-session-item-active' : ''}`}
+          onClick={onSelectHelperSettings}
+        >
+          <div className="dashboard-session-item-title">Helper Settings</div>
+          <div className="dashboard-session-item-meta">
+            <span>Providers</span>
+            <span>Preferences</span>
+          </div>
+        </button>
+      </div>
 
-      <div className="dashboard-session-list">
-        {sessions.map((session) => (
-          <button
-            key={session.id}
-            type="button"
-            className={`dashboard-session-item ${selectedSessionId === session.id && !showHelperSettings ? 'dashboard-session-item-active' : ''}`}
-            onClick={() => onSelectSession(session.id)}
-          >
-            <div className="dashboard-session-item-title">{session.title}</div>
-            <div className="dashboard-session-item-meta">
-              <span>{formatDate(session.createdAt)}</span>
-              <span>{formatDuration(session.durationMs)}</span>
-            </div>
-          </button>
-        ))}
+      <div className="dashboard-sidebar-section dashboard-sidebar-section-fill">
+        <p className="dashboard-sidebar-section-label">Sessions</p>
+
+        <div className="dashboard-session-list">
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              className={`dashboard-session-item ${selectedSessionId === session.id && !showHelperSettings ? 'dashboard-session-item-active' : ''}`}
+              onClick={() => onSelectSession(session.id)}
+            >
+              <div className="dashboard-session-item-title">{session.title}</div>
+              <div className="dashboard-session-item-meta">
+                <span>{formatDate(session.createdAt)}</span>
+                <span>{formatDuration(session.durationMs)}</span>
+              </div>
+            </button>
+          ))}
+        </div>
       </div>
     </aside>
   );

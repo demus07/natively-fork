@@ -1,9 +1,14 @@
 export default function EmptyState() {
   return (
     <div className="dashboard-empty-state">
+      <div className="dashboard-empty-state-icon" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+      </div>
       <h2>No sessions yet</h2>
-      <p>Start a session from the overlay, speak or ask for help, then end it with “End + review”.</p>
-      <p>Your completed sessions will appear here automatically.</p>
+      <p>Start a session from the overlay to see your review here.</p>
     </div>
   );
 }

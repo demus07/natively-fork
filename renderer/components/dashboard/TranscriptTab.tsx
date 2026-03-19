@@ -12,12 +12,22 @@ function formatOffset(startedMs: number): string {
 }
 
 export default function TranscriptTab({ utterances }: TranscriptTabProps) {
+  if (utterances.length === 0) {
+    return (
+      <div className="dashboard-transcript-list dashboard-transcript-list-empty">
+        <p className="dashboard-card-empty">No transcript lines were captured for this session.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="dashboard-transcript-list">
       {utterances.map((utterance) => (
         <div key={`${utterance.id ?? utterance.startedMs}-${utterance.text}`} className="dashboard-transcript-line">
           <span className="dashboard-transcript-time">{formatOffset(utterance.startedMs)}</span>
-          <span className="dashboard-transcript-text">{utterance.text}</span>
+          <div className="dashboard-transcript-content">
+            <span className="dashboard-transcript-text">{utterance.text}</span>
+          </div>
         </div>
       ))}
     </div>

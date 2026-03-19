@@ -62,22 +62,37 @@ export default function SessionDetail({ session, onSessionPatched }: SessionDeta
     <div className="dashboard-detail">
       <div className="dashboard-detail-header">
         <div className="dashboard-detail-header-main">
+          <div className="dashboard-breadcrumb">
+            <span>Sessions</span>
+            <span className="dashboard-breadcrumb-separator">/</span>
+            <span className="dashboard-breadcrumb-current">{session.title}</span>
+          </div>
+
           <input
             className="dashboard-title-input"
             value={draftTitle}
             onChange={(event) => setDraftTitle(event.target.value)}
           />
+
           <div className="dashboard-detail-meta">
-            <span>{formatDate(session.createdAt)}</span>
-            <span>{formatDuration(session.durationMs)}</span>
-          </div>
-        </div>
-        <div className="dashboard-badges">
-          {providerBadges.map((badge) => (
-            <span key={badge} className="dashboard-badge">
-              {badge}
+            <span className="dashboard-detail-meta-pair">
+              <span className="dashboard-detail-meta-label">Created</span>
+              <span className="dashboard-detail-meta-value">{formatDate(session.createdAt)}</span>
             </span>
-          ))}
+            <span className="dashboard-detail-meta-separator">·</span>
+            <span className="dashboard-detail-meta-pair">
+              <span className="dashboard-detail-meta-label">Duration</span>
+              <span className="dashboard-detail-meta-value">{formatDuration(session.durationMs)}</span>
+            </span>
+            <span className="dashboard-detail-meta-separator">·</span>
+            <div className="dashboard-badges">
+              {providerBadges.map((badge) => (
+                <span key={badge} className="dashboard-badge">
+                  {badge}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

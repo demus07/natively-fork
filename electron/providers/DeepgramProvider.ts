@@ -54,8 +54,16 @@ export class DeepgramProvider extends EventEmitter implements STTProvider {
       try {
         if (this.socket.readyState === WebSocket.OPEN) {
           this.socket.send(JSON.stringify({ type: 'CloseStream' }));
+          this.socket.close();
+        } else if (this.socket.readyState === WebSocket.CONNECTING) {
+          // `terminate()` while CONNECTING can emit an uncaught ws error in Electron.
+          this.socket.once('error', () => {
+            // Swallow expected shutdown races while the socket is still connecting.
+          });
+          this.socket.close();
+        } else {
+          this.socket.terminate();
         }
-        this.socket.terminate();
       } catch {
         // Ignore shutdown errors.
       }
@@ -204,12 +212,19 @@ export class DeepgramProvider extends EventEmitter implements STTProvider {
         { headers: { Authorization: `Token ${this.config.apiKey}` } }
       );
       const timeout = setTimeout(() => {
-        ws.terminate();
+        if (ws.readyState === WebSocket.CONNECTING) {
+          ws.once('error', () => {
+            // Ignore connect-time shutdown races during the probe.
+          });
+          ws.close();
+        } else {
+          ws.terminate();
+        }
         resolve({ ok: false, error: 'Connection timed out after 5 seconds' });
       }, 5000);
       ws.on('open', () => {
         clearTimeout(timeout);
-        ws.terminate();
+        ws.close();
         resolve({ ok: true });
       });
       ws.on('error', (err) => {

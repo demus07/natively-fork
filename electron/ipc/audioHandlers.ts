@@ -5,7 +5,6 @@ import { registry } from '../services/providerRegistry';
 import { getActiveSession } from '../services/activeSession';
 import { sessionService } from '../services/SessionService';
 
-let pendingStartTimer: NodeJS.Timeout | null = null;
 let listenersBound = false;
 let handlersRegistered = false;
 
@@ -21,10 +20,6 @@ function estimateUtteranceDuration(text: string): number {
 
 function cleanupAudioListeners(): void {
   const stt = registry.getSTT();
-  if (pendingStartTimer) {
-    clearTimeout(pendingStartTimer);
-    pendingStartTimer = null;
-  }
   stt.stop();
   stt.removeAllListeners('transcript');
   stt.removeAllListeners('interim');
@@ -102,24 +97,11 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
     ipcMain.handle(IPC_CHANNELS.startAudioCapture, async () => {
       bindListeners();
 
-      if (pendingStartTimer) {
-        clearTimeout(pendingStartTimer);
-        pendingStartTimer = null;
-      }
-
       if (registry.getSTT().isRunning()) {
         return { success: true, running: true };
       }
 
-      await new Promise<void>((resolve) => {
-        pendingStartTimer = setTimeout(() => {
-          pendingStartTimer = null;
-          if (!registry.getSTT().isRunning()) {
-            registry.getSTT().start();
-          }
-          resolve();
-        }, 600);
-      });
+      registry.getSTT().start();
 
       return { success: true };
     });
