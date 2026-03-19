@@ -290,20 +290,71 @@ export class SessionService {
     });
   }
 
-  async renameSession(sessionId: string, title: string): Promise<void> {
+  async renameSession(sessionId: string, title: string): Promise<SessionSummary> {
     const nextTitle = title.trim();
     if (!nextTitle) {
       throw new Error('Session title cannot be empty');
     }
 
+    return runDatabaseTask((database) => {
+      const renamedSession = database.transaction(() => {
+        database
+          .prepare(
+            `UPDATE sessions
+             SET title = ?
+             WHERE id = ?`
+          )
+          .run(nextTitle, sessionId);
+
+        return database
+          .prepare(
+            `SELECT
+               id,
+               title,
+               created_at,
+               ended_at,
+               duration_ms,
+               provider_llm,
+               provider_stt,
+               status,
+               CASE WHEN summary_json IS NULL THEN 0 ELSE 1 END AS has_summary
+             FROM sessions
+             WHERE id = ?`
+          )
+          .get(sessionId) as SessionSummaryRow | undefined;
+      });
+
+      const row = renamedSession();
+      if (!row) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+
+      return mapSessionSummary(row);
+    });
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
     await runDatabaseTask((database) => {
-      database
-        .prepare(
-          `UPDATE sessions
-           SET title = ?
-           WHERE id = ?`
-        )
-        .run(nextTitle, sessionId);
+      const deleted = database.transaction(() => {
+        database
+          .prepare(
+            `DELETE FROM utterances
+             WHERE session_id = ?`
+          )
+          .run(sessionId);
+
+        return database
+          .prepare(
+            `DELETE FROM sessions
+             WHERE id = ?`
+          )
+          .run(sessionId);
+      });
+
+      const result = deleted();
+      if (result.changes === 0) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
     });
   }
 }

@@ -2,7 +2,7 @@ import type { Settings } from '../renderer/types';
 import { WINDOW_DIMENSIONS } from './shared';
 
 export const APP_METADATA = {
-  name: 'Natively',
+  name: 'Sync.',
   version: '1.0.0',
   referenceRepository: 'https://github.com/evinjohnn/natively-cluely-ai-assistant'
 } as const;

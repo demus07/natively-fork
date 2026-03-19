@@ -95,26 +95,39 @@ export default function SetupApp() {
   const launch = async () => {
     setLaunching(true);
     try {
-      await window.electronAPI.saveProviderSettings?.({
-        ...((await window.electronAPI.getSettings()) || {}),
-        llmProvider,
-        codexModel: normalizeCodexModel(codexModel),
-        geminiApiKey: geminiKey,
-        geminiModel,
-        ollamaEndpoint,
-        ollamaModel,
-        sttProvider,
-        deepgramApiKey: deepgramKey,
-        deepgramModel: PROVIDER_DEFAULTS.deepgramModel,
-        whisperModel,
-        whisperLanguage: PROVIDER_DEFAULTS.whisperLanguage,
-        whisperComputeType: PROVIDER_DEFAULTS.whisperComputeType,
-        whisperDevice: PROVIDER_DEFAULTS.whisperDevice
-      });
+      await persistProviderSettings();
       await window.electronAPI.launchOverlay?.();
     } catch (err) {
       setLaunching(false);
       alert(`Launch failed: ${err}`);
+    }
+  };
+
+  const persistProviderSettings = async () => {
+    await window.electronAPI.saveProviderSettings?.({
+      ...((await window.electronAPI.getSettings()) || {}),
+      llmProvider,
+      codexModel: normalizeCodexModel(codexModel),
+      geminiApiKey: geminiKey,
+      geminiModel,
+      ollamaEndpoint,
+      ollamaModel,
+      sttProvider,
+      deepgramApiKey: deepgramKey,
+      deepgramModel: PROVIDER_DEFAULTS.deepgramModel,
+      whisperModel,
+      whisperLanguage: PROVIDER_DEFAULTS.whisperLanguage,
+      whisperComputeType: PROVIDER_DEFAULTS.whisperComputeType,
+      whisperDevice: PROVIDER_DEFAULTS.whisperDevice
+    });
+  };
+
+  const openDashboard = async () => {
+    try {
+      await persistProviderSettings();
+      await window.electronAPI.openDashboard?.();
+    } catch (err) {
+      alert(`Could not open dashboard: ${err}`);
     }
   };
 
@@ -349,23 +362,41 @@ export default function SetupApp() {
         <hr style={{ border: 'none', borderTop: '1px solid rgba(255,255,255,0.1)', margin: '0 0 28px' }} />
 
         <section>
-          <button
-            onClick={() => void launch()}
-            disabled={!canLaunch}
-            style={{
-              width: '100%',
-              padding: '13px',
-              borderRadius: '10px',
-              border: 'none',
-              background: canLaunch ? '#2563eb' : 'rgba(255,255,255,0.1)',
-              color: canLaunch ? '#fff' : 'rgba(255,255,255,0.5)',
-              fontSize: '15px',
-              fontWeight: 600,
-              cursor: canLaunch ? 'pointer' : 'not-allowed'
-            }}
-          >
-            {launching ? 'Launching…' : 'Save & Launch Natively'}
-          </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <button
+              onClick={() => void openDashboard()}
+              style={{
+                width: '100%',
+                padding: '13px',
+                borderRadius: '10px',
+                border: '1px solid rgba(255,255,255,0.16)',
+                background: 'transparent',
+                color: '#fff',
+                fontSize: '15px',
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Open dashboard
+            </button>
+            <button
+              onClick={() => void launch()}
+              disabled={!canLaunch}
+              style={{
+                width: '100%',
+                padding: '13px',
+                borderRadius: '10px',
+                border: 'none',
+                background: canLaunch ? '#2563eb' : 'rgba(255,255,255,0.1)',
+                color: canLaunch ? '#fff' : 'rgba(255,255,255,0.5)',
+                fontSize: '15px',
+                fontWeight: 600,
+                cursor: canLaunch ? 'pointer' : 'not-allowed'
+              }}
+            >
+              {launching ? 'Launching…' : 'Open Sync.'}
+            </button>
+          </div>
           {!canLaunch && !launching && (
             <p style={{ ...helpStyle, textAlign: 'center', marginTop: '8px' }}>
               Test both connections above to continue

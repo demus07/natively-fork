@@ -34,7 +34,7 @@ export function openDashboardWindow(sessionId?: string): BrowserWindow {
     minHeight: 620,
     show: false,
     resizable: true,
-    title: 'Natively Dashboard',
+    title: 'Sypha Sync',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       nodeIntegration: false,

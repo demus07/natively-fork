@@ -1,5 +1,4 @@
 import { EyeOff, Flag, Mic, Monitor } from 'lucide-react';
-import iconUrl from '../assets/icon.png';
 
 interface TitleBarProps {
   isRecording: boolean;
@@ -22,7 +21,7 @@ export default function TitleBar({
     <div className="top-pill drag-region">
       <div className="titlebar-left">
         <div className="capsule-app-icon-wrap">
-          <img src={iconUrl} alt="Natively" className="capsule-app-icon" />
+          <img src="/logo_transparent.png" alt="Sync." className="capsule-app-icon" />
         </div>
         <button
           type="button"

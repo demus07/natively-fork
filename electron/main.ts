@@ -41,6 +41,7 @@ import {
   saveAllSettings
 } from './services/database';
 import { registry } from './services/providerRegistry';
+import { registerDashboardCommandHandlers } from './services/dashboardCommands';
 import { getDashboardAppUrl, startDashboardWebServer, stopDashboardWebServer } from './services/dashboardWebServer';
 import { sessionService } from './services/SessionService';
 import { summarizationService } from './services/SummarizationService';
@@ -487,6 +488,9 @@ async function bootstrap(): Promise<void> {
     await requestMacMicrophonePermission();
 
     await initDatabase();
+    registerDashboardCommandHandlers({
+      launchOverlay
+    });
     await startDashboardWebServer();
     registerCommonHandlers();
     registerSetupHandlers();

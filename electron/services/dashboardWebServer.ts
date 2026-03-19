@@ -5,8 +5,10 @@ import { app } from 'electron';
 import isDev from 'electron-is-dev';
 import { DASHBOARD_WEB_CONFIG } from '../../src/config';
 import { getAllSettings, saveAllSettings } from './database';
+import { launchOverlayFromDashboard } from './dashboardCommands';
 import { dashboardEvents } from './dashboardEvents';
 import { sessionService } from './SessionService';
+import { summarizationService } from './SummarizationService';
 
 type JsonResult = {
   ok: boolean;
@@ -44,7 +46,7 @@ export function getDashboardAppUrl(sessionId?: string): string {
 
 function withCors(response: ServerResponse<IncomingMessage>): void {
   response.setHeader('Access-Control-Allow-Origin', '*');
-  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,OPTIONS');
+  response.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
   response.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 }
 
@@ -195,6 +197,24 @@ async function handleDashboardRequest(
       return;
     }
 
+    if (request.method === 'POST' && route === '/overlay/launch') {
+      await launchOverlayFromDashboard();
+      sendJson(response, 200, { ok: true, data: null });
+      return;
+    }
+
+    if (request.method === 'POST' && route.endsWith('/summarize') && route.startsWith('/sessions/')) {
+      const sessionId = decodeURIComponent(route.slice('/sessions/'.length, -'/summarize'.length));
+      void summarizationService.summarizeSession(sessionId).catch((error) => {
+        console.warn('[DASHBOARD API] Failed to trigger session summarization', {
+          sessionId,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      });
+      sendJson(response, 202, { ok: true, data: null });
+      return;
+    }
+
     if ((request.method === 'PATCH' || request.method === 'PUT') && route.startsWith('/sessions/')) {
       const sessionId = decodeURIComponent(route.slice('/sessions/'.length));
       const body = await readJsonBody<{ title?: string }>(request);
@@ -208,7 +228,14 @@ async function handleDashboardRequest(
         });
         return;
       }
-      await sessionService.renameSession(sessionId, body.title);
+      const session = await sessionService.renameSession(sessionId, body.title);
+      sendJson(response, 200, { ok: true, data: session });
+      return;
+    }
+
+    if (request.method === 'DELETE' && route.startsWith('/sessions/')) {
+      const sessionId = decodeURIComponent(route.slice('/sessions/'.length));
+      await sessionService.deleteSession(sessionId);
       sendJson(response, 200, { ok: true, data: null });
       return;
     }

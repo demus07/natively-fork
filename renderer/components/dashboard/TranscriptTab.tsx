@@ -26,6 +26,7 @@ export default function TranscriptTab({ utterances }: TranscriptTabProps) {
         <div key={`${utterance.id ?? utterance.startedMs}-${utterance.text}`} className="dashboard-transcript-line">
           <span className="dashboard-transcript-time">{formatOffset(utterance.startedMs)}</span>
           <div className="dashboard-transcript-content">
+            <span className="dashboard-transcript-speaker dashboard-transcript-speaker-you">You</span>
             <span className="dashboard-transcript-text">{utterance.text}</span>
           </div>
         </div>

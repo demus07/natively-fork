@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import HelperSettingsView from './components/dashboard/HelperSettingsView';
 import EmptyState from './components/dashboard/EmptyState';
+import HelperSettingsView from './components/dashboard/HelperSettingsView';
 import SessionDetail from './components/dashboard/SessionDetail';
 import Sidebar from './components/dashboard/Sidebar';
+import ToastContainer from './components/dashboard/ToastContainer';
+import { useToast } from './hooks/useToast';
+import { dashboardActions } from './services/dashboardActions';
 import { dashboardClient } from './services/dashboardClient';
 import type { DashboardSession, DashboardSessionSummary, DashboardSummary, Settings } from './types';
 
@@ -20,6 +23,7 @@ export default function DashboardApp() {
   const [mode, setMode] = useState<SidebarMode>('sessions');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { toasts, pushToast, removeToast } = useToast();
 
   useEffect(() => {
     void dashboardClient.getSettings().then((result) => {
@@ -64,9 +68,7 @@ export default function DashboardApp() {
   useEffect(() => {
     const offSummary = dashboardClient.onSessionSummaryUpdate(({ sessionId, summary }) => {
       setSessions((current) =>
-        current.map((session) =>
-          session.id === sessionId ? { ...session, hasSummary: true } : session
-        )
+        current.map((session) => (session.id === sessionId ? { ...session, hasSummary: true } : session))
       );
       setSelectedSession((current) =>
         current && current.id === sessionId
@@ -94,8 +96,56 @@ export default function DashboardApp() {
     );
   };
 
+  const handleLaunchOverlay = async () => {
+    const result = await dashboardActions.launchOverlay();
+    if (!result.ok) {
+      pushToast('Could not reach the Sync. app. Make sure it is running.', 'error');
+      return;
+    }
+
+    pushToast('Overlay launch requested.');
+  };
+
+  const handleDeleteSession = async (sessionId: string) => {
+    const currentSessions = sessions;
+    const nextSessions = currentSessions.filter((session) => session.id !== sessionId);
+    const deletedWasSelected = selectedSessionId === sessionId;
+
+    setSessions(nextSessions);
+
+    if (deletedWasSelected) {
+      setSelectedSession(null);
+      setSelectedSessionId(nextSessions[0]?.id ?? null);
+      if (!nextSessions.length) {
+        setMode('sessions');
+      }
+    }
+
+    const result = await dashboardActions.deleteSession(sessionId);
+    if (!result.ok) {
+      setSessions(currentSessions);
+      if (deletedWasSelected) {
+        setSelectedSessionId(sessionId);
+      }
+      pushToast(result.error?.message || 'Could not delete the session.', 'error');
+      return;
+    }
+
+    pushToast('Deleted');
+  };
+
   if (error) {
-    return <div className="dashboard-empty-state"><h2>Dashboard error</h2><p>{error}</p></div>;
+    return (
+      <div className="dashboard-shell">
+        <main className="dashboard-main">
+          <div className="dashboard-empty-state">
+            <h2>Dashboard error</h2>
+            <p>{error}</p>
+          </div>
+        </main>
+        <ToastContainer toasts={toasts} onDismiss={removeToast} />
+      </div>
+    );
   }
 
   return (
@@ -109,21 +159,27 @@ export default function DashboardApp() {
           setSelectedSessionId(sessionId);
         }}
         onSelectHelperSettings={() => setMode('settings')}
+        onLaunchOverlay={handleLaunchOverlay}
+        onDeleteSession={handleDeleteSession}
       />
 
       <main className="dashboard-main">
         {mode === 'settings' && settings ? (
           <HelperSettingsView settings={settings} onSettingsSaved={setSettings} />
         ) : sessions.length === 0 ? (
-          <EmptyState />
+          <EmptyState onLaunchOverlay={() => void handleLaunchOverlay()} />
         ) : selectedSession ? (
-          <SessionDetail session={selectedSession} onSessionPatched={patchSelectedSession} />
+          <SessionDetail session={selectedSession} onSessionPatched={patchSelectedSession} onToast={pushToast} />
         ) : selectedSummary ? (
-          <div className="dashboard-empty-state"><h2>Loading session…</h2></div>
+          <div className="dashboard-empty-state">
+            <h2>Loading session…</h2>
+          </div>
         ) : (
-          <EmptyState />
+          <EmptyState onLaunchOverlay={() => void handleLaunchOverlay()} />
         )}
       </main>
+
+      <ToastContainer toasts={toasts} onDismiss={removeToast} />
     </div>
   );
 }

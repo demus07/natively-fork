@@ -153,6 +153,7 @@ export interface ElectronAPI {
   saveProviderSettings?: (settings: unknown) => Promise<{ ok: boolean }>;
   launchOverlay?: () => Promise<{ ok: boolean }>;
   openSetup?: () => Promise<{ ok: boolean }>;
+  openDashboard?: (payload?: { sessionId?: string }) => Promise<{ ok: boolean }>;
 }
 
 declare global {

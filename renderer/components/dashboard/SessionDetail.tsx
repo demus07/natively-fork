@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
-import { dashboardClient } from '../../services/dashboardClient';
+import { useEffect, useState } from 'react';
+import { dashboardActions } from '../../services/dashboardActions';
 import type { DashboardSession } from '../../types';
 import OverviewTab from './OverviewTab';
+import SessionHeader from './SessionHeader';
+import TabBar from './TabBar';
 import TranscriptTab from './TranscriptTab';
 
 type ActiveTab = 'overview' | 'transcript';
@@ -9,113 +11,83 @@ type ActiveTab = 'overview' | 'transcript';
 interface SessionDetailProps {
   session: DashboardSession;
   onSessionPatched: (session: DashboardSession) => void;
+  onToast: (message: string, tone?: 'default' | 'error') => void;
 }
 
-function formatDate(value: number): string {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short'
-  }).format(new Date(value));
-}
-
-function formatDuration(durationMs: number | null): string {
-  if (!durationMs || durationMs <= 0) {
-    return '0 seconds';
-  }
-  const totalSeconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
-}
-
-export default function SessionDetail({ session, onSessionPatched }: SessionDetailProps) {
+export default function SessionDetail({ session, onSessionPatched, onToast }: SessionDetailProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview');
-  const [draftTitle, setDraftTitle] = useState(session.title);
+  const [isRegenerating, setIsRegenerating] = useState(false);
 
   useEffect(() => {
-    setDraftTitle(session.title);
-  }, [session.id, session.title]);
+    if (session.summary) {
+      setIsRegenerating(false);
+    }
+  }, [session.summary]);
 
-  useEffect(() => {
-    const trimmedTitle = draftTitle.trim();
-    if (!trimmedTitle || trimmedTitle === session.title) {
+  const handleRename = async (title: string) => {
+    const previousTitle = session.title;
+    const optimisticSession = { ...session, title };
+    onSessionPatched(optimisticSession);
+
+    const result = await dashboardActions.renameSession(session.id, title);
+    if (!result.ok || !result.data) {
+      onSessionPatched({ ...optimisticSession, title: previousTitle });
+      onToast(result.error?.message || 'Could not rename session.', 'error');
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      void dashboardClient.renameSession(session.id, trimmedTitle).then((result) => {
-        if (result.ok) {
-          onSessionPatched({ ...session, title: trimmedTitle });
-        }
-      });
-    }, 800);
+    onSessionPatched({
+      ...optimisticSession,
+      title: result.data.title
+    });
+  };
 
-    return () => window.clearTimeout(timer);
-  }, [draftTitle, session, onSessionPatched]);
+  const handleCopyOverview = async () => {
+    if (!session.summary?.overview) {
+      return;
+    }
 
-  const providerBadges = useMemo(
-    () => [session.providerLlm, session.providerStt],
-    [session.providerLlm, session.providerStt]
-  );
+    try {
+      await navigator.clipboard.writeText(session.summary.overview);
+      onToast('Copied!');
+    } catch {
+      onToast('Could not copy the overview.', 'error');
+    }
+  };
+
+  const handleRegenerateSummary = async () => {
+    setIsRegenerating(true);
+    onSessionPatched({
+      ...session,
+      summary: null,
+      hasSummary: false
+    });
+
+    const result = await dashboardActions.summarizeSession(session.id);
+    if (!result.ok) {
+      setIsRegenerating(false);
+      onSessionPatched(session);
+      onToast(result.error?.message || 'Could not regenerate summary.', 'error');
+      return;
+    }
+
+    onToast('Regenerating summary...');
+  };
 
   return (
     <div className="dashboard-detail">
-      <div className="dashboard-detail-header">
-        <div className="dashboard-detail-header-main">
-          <div className="dashboard-breadcrumb">
-            <span>Sessions</span>
-            <span className="dashboard-breadcrumb-separator">/</span>
-            <span className="dashboard-breadcrumb-current">{session.title}</span>
-          </div>
-
-          <input
-            className="dashboard-title-input"
-            value={draftTitle}
-            onChange={(event) => setDraftTitle(event.target.value)}
-          />
-
-          <div className="dashboard-detail-meta">
-            <span className="dashboard-detail-meta-pair">
-              <span className="dashboard-detail-meta-label">Created</span>
-              <span className="dashboard-detail-meta-value">{formatDate(session.createdAt)}</span>
-            </span>
-            <span className="dashboard-detail-meta-separator">·</span>
-            <span className="dashboard-detail-meta-pair">
-              <span className="dashboard-detail-meta-label">Duration</span>
-              <span className="dashboard-detail-meta-value">{formatDuration(session.durationMs)}</span>
-            </span>
-            <span className="dashboard-detail-meta-separator">·</span>
-            <div className="dashboard-badges">
-              {providerBadges.map((badge) => (
-                <span key={badge} className="dashboard-badge">
-                  {badge}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-tabbar">
-        <button
-          type="button"
-          className={activeTab === 'overview' ? 'dashboard-tab-active' : 'dashboard-tab'}
-          onClick={() => setActiveTab('overview')}
-        >
-          Overview
-        </button>
-        <button
-          type="button"
-          className={activeTab === 'transcript' ? 'dashboard-tab-active' : 'dashboard-tab'}
-          onClick={() => setActiveTab('transcript')}
-        >
-          Transcript
-        </button>
-      </div>
+      <SessionHeader session={session} onRename={handleRename} />
+      <TabBar activeTab={activeTab} onChange={setActiveTab} />
 
       <div className="dashboard-detail-body">
         {activeTab === 'overview' ? (
-          <OverviewTab summary={session.summary} />
+          <OverviewTab
+            sessionId={session.id}
+            summary={session.summary}
+            isRegenerating={isRegenerating}
+            onCopyOverview={handleCopyOverview}
+            onRegenerate={handleRegenerateSummary}
+          />
         ) : (
           <TranscriptTab utterances={session.utterances} />
         )}

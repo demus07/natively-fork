@@ -50,7 +50,7 @@ export function initSessionHandlers(): void {
   );
 
   ipcMain.handle(IPC_CHANNELS.SESSION_RENAME, async (_event, payload: { sessionId: string; title: string }) =>
-    withIPCResult<void>(sessionService.renameSession(payload.sessionId, payload.title))
+    withIPCResult<SessionSummary>(sessionService.renameSession(payload.sessionId, payload.title))
   );
 
   ipcMain.handle(

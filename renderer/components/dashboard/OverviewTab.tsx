@@ -1,7 +1,11 @@
 import type { DashboardSummary } from '../../types';
 
 interface OverviewTabProps {
+  sessionId: string;
   summary: DashboardSummary | null;
+  isRegenerating: boolean;
+  onCopyOverview: () => void;
+  onRegenerate: () => void;
 }
 
 function renderList(items: string[]) {
@@ -13,7 +17,7 @@ function renderList(items: string[]) {
     <ul className="dashboard-list">
       {items.map((item) => (
         <li key={item}>
-          <span className="dashboard-list-marker" />
+          <span className="dashboard-list-dot" />
           <span>{item}</span>
         </li>
       ))}
@@ -27,10 +31,10 @@ function renderActionItems(summary: DashboardSummary) {
   }
 
   return (
-    <ul className="dashboard-list dashboard-action-list">
+    <ul className="dashboard-list">
       {summary.action_items.map((item) => (
         <li key={`${item.text}-${item.owner ?? 'none'}`}>
-          <span className="dashboard-list-marker" />
+          <span className="dashboard-list-dot" />
           <span>
             {item.text}
             {item.owner ? <span className="dashboard-owner-tag">{item.owner}</span> : null}
@@ -45,89 +49,80 @@ function OverviewCard({
   label,
   children,
   fullWidth = false,
-  emphasis = false
+  emphasis = false,
+  actions
 }: {
   label: string;
   children: React.ReactNode;
   fullWidth?: boolean;
   emphasis?: boolean;
+  actions?: React.ReactNode;
 }) {
   return (
     <section className={`dashboard-card ${fullWidth ? 'dashboard-card-full' : ''} ${emphasis ? 'dashboard-card-emphasis' : ''}`}>
       <div className="dashboard-card-header">
         <p className="dashboard-card-label">{label}</p>
-        {emphasis ? (
-          <div className="dashboard-card-actions" aria-hidden="true">
-            <button type="button" className="dashboard-card-icon-btn" disabled title="Regenerate summary">
-              ↺
-            </button>
-            <button type="button" className="dashboard-card-icon-btn" disabled title="Copy summary">
-              ⧉
-            </button>
-          </div>
-        ) : null}
+        {actions ? <div className="dashboard-card-actions">{actions}</div> : null}
       </div>
       {children}
     </section>
   );
 }
 
-export default function OverviewTab({ summary }: OverviewTabProps) {
+function LoadingOverview() {
+  return (
+    <div className="dashboard-overview-grid">
+      <div className="dashboard-summary-loading">Generating summary...</div>
+
+      <section className="dashboard-card dashboard-card-full dashboard-loading-card">
+        <div className="dashboard-skeleton dashboard-skeleton-label" />
+        <div className="dashboard-skeleton dashboard-skeleton-tall" />
+        <div className="dashboard-skeleton dashboard-skeleton-medium" />
+      </section>
+
+      {Array.from({ length: 6 }).map((_, index) => (
+        <section
+          key={index}
+          className={`dashboard-card dashboard-loading-card ${index === 2 || index === 5 ? 'dashboard-card-full' : ''}`}
+        >
+          <div className="dashboard-skeleton dashboard-skeleton-label" />
+          <div className="dashboard-skeleton dashboard-skeleton-list" />
+          <div className="dashboard-skeleton dashboard-skeleton-list" />
+          {index === 2 || index === 5 ? <div className="dashboard-skeleton dashboard-skeleton-list" /> : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+export default function OverviewTab({
+  sessionId: _sessionId,
+  summary,
+  isRegenerating,
+  onCopyOverview,
+  onRegenerate
+}: OverviewTabProps) {
   if (!summary) {
-    return (
-      <div className="dashboard-overview-grid">
-        <div className="dashboard-summary-loading">Generating summary...</div>
-
-        <section className="dashboard-card dashboard-card-full dashboard-loading-card">
-          <div className="dashboard-skeleton dashboard-skeleton-label" />
-          <div className="dashboard-skeleton dashboard-skeleton-tall" />
-          <div className="dashboard-skeleton dashboard-skeleton-medium" />
-        </section>
-
-        <section className="dashboard-card dashboard-loading-card">
-          <div className="dashboard-skeleton dashboard-skeleton-label" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-        </section>
-
-        <section className="dashboard-card dashboard-loading-card">
-          <div className="dashboard-skeleton dashboard-skeleton-label" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-        </section>
-
-        <section className="dashboard-card dashboard-card-full dashboard-loading-card">
-          <div className="dashboard-skeleton dashboard-skeleton-label" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-        </section>
-
-        <section className="dashboard-card dashboard-loading-card">
-          <div className="dashboard-skeleton dashboard-skeleton-label" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-        </section>
-
-        <section className="dashboard-card dashboard-loading-card">
-          <div className="dashboard-skeleton dashboard-skeleton-label" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-        </section>
-
-        <section className="dashboard-card dashboard-card-full dashboard-loading-card">
-          <div className="dashboard-skeleton dashboard-skeleton-label" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-          <div className="dashboard-skeleton dashboard-skeleton-list" />
-        </section>
-      </div>
-    );
+    return <LoadingOverview />;
   }
 
   return (
     <div className="dashboard-overview-grid">
-      <OverviewCard label="Overview" fullWidth emphasis>
+      <OverviewCard
+        label="Overview"
+        fullWidth
+        emphasis
+        actions={(
+          <>
+            <button type="button" className="dashboard-card-icon-btn" onClick={onRegenerate} title="Regenerate summary">
+              {isRegenerating ? <span className="dashboard-inline-spinner" /> : '↺'}
+            </button>
+            <button type="button" className="dashboard-card-icon-btn" onClick={onCopyOverview} title="Copy overview">
+              ⧉
+            </button>
+          </>
+        )}
+      >
         <p className="dashboard-overview-copy">{summary.overview}</p>
       </OverviewCard>
 

@@ -31,7 +31,8 @@ const IPC_CHANNELS = {
   getConversationHistory: 'get-conversation-history',
   clearHistory: 'clear-history',
   getUsageStats: 'get-usage-stats',
-  endSessionAndReview: 'end-session-and-review'
+  endSessionAndReview: 'end-session-and-review',
+  dashboardOpen: 'dashboard-open'
 } as const;
 
 const electronAPI = {
@@ -113,7 +114,8 @@ const electronAPI = {
   testSTTConnection: (config: unknown) => ipcRenderer.invoke('setup:testSTT', config),
   saveProviderSettings: (settings: unknown) => ipcRenderer.invoke('setup:saveSettings', settings),
   launchOverlay: () => ipcRenderer.invoke('setup:complete'),
-  openSetup: () => ipcRenderer.invoke('setup:open')
+  openSetup: () => ipcRenderer.invoke('setup:open'),
+  openDashboard: (payload?: { sessionId?: string }) => ipcRenderer.invoke(IPC_CHANNELS.dashboardOpen, payload)
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);
