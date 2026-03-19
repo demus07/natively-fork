@@ -10,13 +10,119 @@ export interface OllamaConfig {
   maxTokens?: number;
 }
 
+function stripThinkingContent(
+  chunk: string,
+  inThinkingBlock: boolean
+): { visibleText: string; inThinkingBlock: boolean } {
+  let visibleText = '';
+  let cursor = 0;
+  let insideThinking = inThinkingBlock;
+
+  while (cursor < chunk.length) {
+    if (insideThinking) {
+      const closingTagIndex = chunk.indexOf('</think>', cursor);
+      if (closingTagIndex === -1) {
+        return { visibleText, inThinkingBlock: true };
+      }
+      cursor = closingTagIndex + '</think>'.length;
+      insideThinking = false;
+      continue;
+    }
+
+    const openingTagIndex = chunk.indexOf('<think>', cursor);
+    if (openingTagIndex === -1) {
+      visibleText += chunk.slice(cursor);
+      return { visibleText, inThinkingBlock: false };
+    }
+
+    visibleText += chunk.slice(cursor, openingTagIndex);
+    cursor = openingTagIndex + '<think>'.length;
+    insideThinking = true;
+  }
+
+  return { visibleText, inThinkingBlock: insideThinking };
+}
+
+function readTextParts(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') {
+          return item;
+        }
+
+        if (typeof item === 'object' && item !== null) {
+          const candidate = item as { text?: unknown };
+          return typeof candidate.text === 'string' ? candidate.text : '';
+        }
+
+        return '';
+      })
+      .join('');
+  }
+
+  return '';
+}
+
+function extractChunkText(payload: unknown): string {
+  if (typeof payload !== 'object' || payload === null) {
+    return '';
+  }
+
+  const choice = (payload as {
+    choices?: Array<{
+      delta?: { content?: unknown; reasoning_content?: unknown; reasoning?: unknown };
+      message?: { content?: unknown };
+    }>;
+  }).choices?.[0];
+
+  if (choice) {
+    const deltaContent = readTextParts(choice.delta?.content);
+    if (deltaContent) {
+      return deltaContent;
+    }
+
+    const messageContent = readTextParts(choice.message?.content);
+    if (messageContent) {
+      return messageContent;
+    }
+
+    const reasoningContent = readTextParts(choice.delta?.reasoning_content);
+    if (reasoningContent) {
+      return reasoningContent;
+    }
+
+    const reasoning = readTextParts(choice.delta?.reasoning);
+    if (reasoning) {
+      return reasoning;
+    }
+  }
+
+  const message = (payload as { message?: { content?: unknown } }).message;
+  if (message) {
+    return readTextParts(message.content);
+  }
+
+  const response = (payload as { response?: unknown }).response;
+  return readTextParts(response);
+}
+
 export class OllamaProvider implements LLMProvider {
   readonly name = 'ollama';
   readonly supportsVision = true;
 
   constructor(private readonly config: OllamaConfig) {}
 
-  async stream(prompt: string, screenshotBase64: string | null, win: BrowserWindow): Promise<string> {
+  async stream(
+    prompt: string,
+    screenshotBase64: string | null,
+    win: BrowserWindow,
+    options?: { timeoutMs?: number }
+  ): Promise<string> {
     const url = `${this.config.endpoint.replace(/\/$/, '')}/v1/chat/completions`;
     const content: Array<{ type: 'text'; text: string } | { type: 'image_url'; image_url: { url: string } }> = [
       { type: 'text', text: prompt }
@@ -47,7 +153,8 @@ export class OllamaProvider implements LLMProvider {
 
     let fullText = '';
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AI_RUNTIME_CONFIG.ollamaRequestTimeoutMs);
+    const timeoutMs = options?.timeoutMs ?? AI_RUNTIME_CONFIG.ollamaRequestTimeoutMs;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       let response: Response;
@@ -71,7 +178,7 @@ export class OllamaProvider implements LLMProvider {
           err.message.includes('ENOTFOUND') ||
           err.message.includes('network');
         const msg = isTimeout
-          ? 'Request timed out after 30 seconds — is your GPU PC responsive?'
+          ? `Request timed out after ${Math.round(timeoutMs / 1000)} seconds — is your GPU PC responsive?`
           : isUnreachable
             ? `Local AI server unreachable — is your GPU PC on at ${this.config.endpoint}? (${err.message})`
             : `Network error: ${err.message}`;
@@ -80,14 +187,14 @@ export class OllamaProvider implements LLMProvider {
         }
         throw new Error(msg);
       }
-      clearTimeout(timeoutId);
-
       if (!response.ok) {
+        clearTimeout(timeoutId);
         const errorText = await response.text();
         throw new Error(`Ollama API error ${response.status}: ${errorText}`);
       }
 
       if (!response.body) {
+        clearTimeout(timeoutId);
         throw new Error('Ollama API returned no response body');
       }
 
@@ -112,20 +219,16 @@ export class OllamaProvider implements LLMProvider {
 
           try {
             const json = JSON.parse(trimmed.slice(6));
-            const delta = json?.choices?.[0]?.delta?.content;
+            const delta = extractChunkText(json);
             if (delta && typeof delta === 'string') {
-              if (delta.includes('<think>')) {
-                inThinkingBlock = true;
-              }
-              if (inThinkingBlock) {
-                if (delta.includes('</think>')) {
-                  inThinkingBlock = false;
-                }
+              const next = stripThinkingContent(delta, inThinkingBlock);
+              inThinkingBlock = next.inThinkingBlock;
+              if (!next.visibleText) {
                 continue;
               }
-              fullText += delta;
+              fullText += next.visibleText;
               if (!win.isDestroyed()) {
-                win.webContents.send(IPC_CHANNELS.aiChunk, delta);
+                win.webContents.send(IPC_CHANNELS.aiChunk, next.visibleText);
               }
             }
           } catch {
@@ -133,6 +236,8 @@ export class OllamaProvider implements LLMProvider {
           }
         }
       }
+
+      clearTimeout(timeoutId);
 
       if (!win.isDestroyed()) {
         win.webContents.send(IPC_CHANNELS.aiComplete, { fullText });

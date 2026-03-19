@@ -21,7 +21,7 @@ export function initAIHandlers(
     try {
       const promptSource =
         payload.type === 'custom' ? payload.userMessage?.trim() || 'Custom prompt' : payload.type;
-      saveMessage('user', promptSource, sessionId);
+      await saveMessage('user', promptSource, sessionId);
 
       let screenshot = payload.screenshot ?? null;
       if (!screenshot && registry.getLLM().supportsVision) {
@@ -50,8 +50,8 @@ export function initAIHandlers(
       ).response;
 
       const tokensUsed = estimateTokens(assistantResponse);
-      saveMessage('assistant', assistantResponse, sessionId, tokensUsed);
-      trackUsage(tokensUsed);
+      await saveMessage('assistant', assistantResponse, sessionId, tokensUsed);
+      await trackUsage(tokensUsed);
     } catch (error) {
       const message =
         error instanceof Error
@@ -62,7 +62,7 @@ export function initAIHandlers(
   });
 
   ipcMain.handle(IPC_CHANNELS.getConversationHistory, async () =>
-    (getMessages(undefined, 100) as Array<{
+    ((await getMessages(undefined, 100)) as Array<{
       id: number;
       role: Message['role'];
       content: string;

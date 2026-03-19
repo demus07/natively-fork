@@ -13,7 +13,12 @@ export class GeminiProvider implements LLMProvider {
 
   constructor(private readonly config: GeminiConfig) {}
 
-  async stream(prompt: string, screenshotBase64: string | null, win: BrowserWindow): Promise<string> {
+  async stream(
+    prompt: string,
+    screenshotBase64: string | null,
+    win: BrowserWindow,
+    options?: { timeoutMs?: number }
+  ): Promise<string> {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${this.config.model}:streamGenerateContent?alt=sse&key=${this.config.apiKey}`;
 
     const parts: object[] = [{ text: prompt }];
@@ -30,7 +35,8 @@ export class GeminiProvider implements LLMProvider {
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    const timeoutMs = options?.timeoutMs ?? 30000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
     let fullText = '';
 
     try {
@@ -40,14 +46,15 @@ export class GeminiProvider implements LLMProvider {
         body: JSON.stringify(requestBody),
         signal: controller.signal
       });
-      clearTimeout(timeoutId);
 
       if (!response.ok) {
+        clearTimeout(timeoutId);
         const errorText = await response.text();
         throw new Error(`Gemini API error ${response.status}: ${errorText}`);
       }
 
       if (!response.body) {
+        clearTimeout(timeoutId);
         throw new Error('Gemini API returned no response body');
       }
 
@@ -76,6 +83,8 @@ export class GeminiProvider implements LLMProvider {
           }
         }
       }
+
+      clearTimeout(timeoutId);
 
       if (!win.isDestroyed()) win.webContents.send(IPC_CHANNELS.aiComplete, { fullText });
       return fullText;

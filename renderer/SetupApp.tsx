@@ -1,8 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { APP_METADATA, PROVIDER_DEFAULTS } from '../src/config';
-
-type LLMProvider = 'gemini' | 'ollama';
-type STTProvider = 'deepgram' | 'whisper';
+import { APP_METADATA, LEGACY_PROVIDER_VALUES, PROVIDER_DEFAULTS } from '../src/config';
+import type { LLMProvider, STTProvider } from './types';
 type TestStatus = 'idle' | 'testing' | 'ok' | 'error';
 
 interface TestState {
@@ -10,15 +8,30 @@ interface TestState {
   message: string;
 }
 
+const isSupportedSetupLlmProvider = (value: LLMProvider): value is 'codex' | 'gemini' | 'ollama' =>
+  value === 'codex' || value === 'gemini' || value === 'ollama';
+
+const isSupportedSetupSttProvider = (value: STTProvider): value is 'deepgram' | 'whisper' =>
+  value === 'deepgram' || value === 'whisper';
+
+const normalizeCodexModel = (model?: string): string => {
+  const trimmedModel = (model || '').trim();
+  if (trimmedModel === LEGACY_PROVIDER_VALUES.codexUnsupportedDefaultModel) {
+    return '';
+  }
+  return trimmedModel;
+};
+
 export default function SetupApp() {
-  const [llmProvider, setLLMProvider] = useState<LLMProvider>('ollama');
+  const [llmProvider, setLLMProvider] = useState<'codex' | 'gemini' | 'ollama'>('ollama');
+  const [codexModel, setCodexModel] = useState<string>(PROVIDER_DEFAULTS.codexModel);
   const [geminiKey, setGeminiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState<string>(PROVIDER_DEFAULTS.geminiModel);
   const [ollamaEndpoint, setOllamaEndpoint] = useState('http://localhost:11434');
   const [ollamaModel, setOllamaModel] = useState<string>(PROVIDER_DEFAULTS.ollamaModel);
   const [llmTest, setLLMTest] = useState<TestState>({ status: 'idle', message: '' });
 
-  const [sttProvider, setSTTProvider] = useState<STTProvider>('whisper');
+  const [sttProvider, setSTTProvider] = useState<'deepgram' | 'whisper'>('whisper');
   const [deepgramKey, setDeepgramKey] = useState('');
   const [whisperModel, setWhisperModel] = useState('turbo');
   const [sttTest, setSTTTest] = useState<TestState>({ status: 'idle', message: '' });
@@ -28,12 +41,13 @@ export default function SetupApp() {
   useEffect(() => {
     void window.electronAPI.getSettings?.().then((s) => {
       if (!s) return;
-      if (s.llmProvider) setLLMProvider(s.llmProvider);
+      if (s.llmProvider && isSupportedSetupLlmProvider(s.llmProvider)) setLLMProvider(s.llmProvider);
+      setCodexModel(normalizeCodexModel(s.codexModel));
       if (s.geminiApiKey) setGeminiKey(s.geminiApiKey);
       if (s.geminiModel) setGeminiModel(s.geminiModel);
       if (s.ollamaEndpoint) setOllamaEndpoint(s.ollamaEndpoint);
       if (s.ollamaModel) setOllamaModel(s.ollamaModel);
-      if (s.sttProvider) setSTTProvider(s.sttProvider);
+      if (s.sttProvider && isSupportedSetupSttProvider(s.sttProvider)) setSTTProvider(s.sttProvider);
       if (s.deepgramApiKey) setDeepgramKey(s.deepgramApiKey);
       if (s.whisperModel) setWhisperModel(s.whisperModel);
     });
@@ -44,9 +58,11 @@ export default function SetupApp() {
 
   const testLLM = async () => {
     setLLMTest({ status: 'testing', message: '' });
-    const config = llmProvider === 'gemini'
-      ? { provider: 'gemini', geminiApiKey: geminiKey, geminiModel }
-      : { provider: 'ollama', ollamaEndpoint, ollamaModel };
+    const config = llmProvider === 'codex'
+      ? { provider: 'codex', codexModel: normalizeCodexModel(codexModel) }
+      : llmProvider === 'gemini'
+        ? { provider: 'gemini', geminiApiKey: geminiKey, geminiModel }
+        : { provider: 'ollama', ollamaEndpoint, ollamaModel };
     try {
       const result = await window.electronAPI.testLLMConnection?.(config);
       setLLMTest({
@@ -82,6 +98,7 @@ export default function SetupApp() {
       await window.electronAPI.saveProviderSettings?.({
         ...((await window.electronAPI.getSettings()) || {}),
         llmProvider,
+        codexModel: normalizeCodexModel(codexModel),
         geminiApiKey: geminiKey,
         geminiModel,
         ollamaEndpoint,
@@ -165,14 +182,37 @@ export default function SetupApp() {
           <select
             value={llmProvider}
             onChange={(e) => {
-              setLLMProvider(e.target.value as LLMProvider);
+              setLLMProvider(e.target.value as 'codex' | 'gemini' | 'ollama');
               resetLLMTest();
             }}
             style={selectStyle}
           >
+            <option value="codex">Codex via OAuth</option>
             <option value="ollama">Ollama (local — private)</option>
             <option value="gemini">Google Gemini (cloud)</option>
           </select>
+
+          {llmProvider === 'codex' && (
+            <>
+              <input
+                type="text"
+                placeholder="Leave blank to use your Codex CLI default"
+                value={codexModel}
+                onChange={(e) => {
+                  setCodexModel(e.target.value);
+                  resetLLMTest();
+                }}
+                style={inputStyle}
+              />
+              <p style={helpStyle}>
+                Uses your signed-in local Codex CLI session. Make sure{' '}
+                <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 6px', borderRadius: '4px', fontSize: '11px' }}>
+                  codex login
+                </code>
+                {' '}has already been completed in Terminal. Leave the model blank to use whatever model your local Codex session already defaults to.
+              </p>
+            </>
+          )}
 
           {llmProvider === 'gemini' && (
             <>
@@ -250,7 +290,7 @@ export default function SetupApp() {
           <select
             value={sttProvider}
             onChange={(e) => {
-              setSTTProvider(e.target.value as STTProvider);
+              setSTTProvider(e.target.value as 'deepgram' | 'whisper');
               resetSTTTest();
             }}
             style={selectStyle}

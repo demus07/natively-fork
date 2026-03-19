@@ -21,7 +21,17 @@ export const WINDOW_CONFIG = {
   setup: {
     width: 620,
     height: 740
+  },
+  dashboard: {
+    width: 1100,
+    height: 700
   }
+} as const;
+
+export const DASHBOARD_WEB_CONFIG = {
+  host: '127.0.0.1',
+  port: 3967,
+  apiBasePath: '/api/dashboard'
 } as const;
 
 export const PROVIDER_DEFAULTS = {
@@ -29,20 +39,55 @@ export const PROVIDER_DEFAULTS = {
   ollamaEndpoint: 'http://192.168.29.234:11434',
   ollamaModel: 'qwen3.5:35b',
   deepgramModel: 'nova-2-meeting',
+  sarvamModel: 'saarika:v1',
   whisperModel: 'turbo',
   whisperLanguage: 'en',
   whisperComputeType: 'int8',
   whisperDevice: 'cpu',
-  codexModel: 'codex-4'
+  codexModel: ''
+} as const;
+
+export const LEGACY_PROVIDER_VALUES = {
+  codexUnsupportedDefaultModel: 'codex-4'
 } as const;
 
 export const AI_RUNTIME_CONFIG = {
   ollamaRequestTimeoutMs: 30_000,
+  sessionSummaryRequestTimeoutMs: 90_000,
   ollamaMaxTokens: 2_048,
   ollamaContextWindow: 8_192,
   ollamaTemperature: 0.2,
   transcriptSegmentCap: 8,
-  screenshotCaptureTimeoutMs: 1_500
+  screenshotCaptureTimeoutMs: 1_500,
+  sessionSummaryMaxChars: 12_000,
+  sessionSummaryHeadChars: 4_000,
+  sessionSummaryTailChars: 8_000,
+  sessionSummaryPrompt: `You are summarizing a completed session transcript.
+
+Return ONLY valid JSON. Do not include markdown fences. Do not include commentary.
+
+The JSON must match exactly this shape:
+{
+  "overview": "string",
+  "topics": ["string"],
+  "action_items": [{ "text": "string", "owner": "string | null" }],
+  "decisions": ["string"],
+  "follow_ups": ["string"],
+  "went_well": ["string"],
+  "to_improve": ["string"]
+}
+
+Rules:
+- overview must be 2-3 sentences
+- topics must be short phrases
+- action_items should be concrete and concise
+- owner should be null if unknown
+- decisions should include only actual conclusions
+- follow_ups should be things to do or ask next
+- went_well and to_improve should be short bullet-style phrases
+
+Transcript:
+{{TRANSCRIPT}}`
 } as const;
 
 export const AUDIO_RUNTIME_CONFIG = {
@@ -108,15 +153,32 @@ export const PYTHON_RUNTIME_CONFIG = {
   ]
 } as const;
 
+export const DATABASE_RUNTIME_CONFIG = {
+  migrationTableName: 'schema_migrations'
+} as const;
+
+export const SESSION_RUNTIME_CONFIG = {
+  titlePrefix: 'Session',
+  listLimit: 50 as number,
+  statusActive: 'active',
+  statusCompleted: 'completed',
+  estimatedUtteranceMsPerCharacter: 45,
+  minUtteranceDurationMs: 800,
+  maxUtteranceDurationMs: 8_000
+} as const;
+
 export const SETTINGS_DEFAULTS: Settings = {
   aiProvider: 'codex',
   llmProvider: 'ollama',
+  openaiApiKey: '',
+  anthropicApiKey: '',
   geminiApiKey: '',
   geminiModel: PROVIDER_DEFAULTS.geminiModel,
   ollamaEndpoint: PROVIDER_DEFAULTS.ollamaEndpoint,
   ollamaModel: PROVIDER_DEFAULTS.ollamaModel,
   sttProvider: 'whisper',
   deepgramApiKey: '',
+  sarvamApiKey: '',
   deepgramModel: PROVIDER_DEFAULTS.deepgramModel,
   googleServiceAccountPath: '',
   codexModel: PROVIDER_DEFAULTS.codexModel,

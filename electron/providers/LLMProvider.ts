@@ -12,7 +12,10 @@ export interface LLMProvider {
   stream(
     prompt: string,
     screenshotBase64: string | null,
-    win: BrowserWindow
+    win: BrowserWindow,
+    options?: {
+      timeoutMs?: number;
+    }
   ): Promise<string>;
   testConnection(): Promise<LLMTestResult>;
 }

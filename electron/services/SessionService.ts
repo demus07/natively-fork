@@ -1,0 +1,311 @@
+import { randomUUID } from 'node:crypto';
+import { SESSION_RUNTIME_CONFIG } from '../../src/config';
+import { runDatabaseTask } from './database';
+import type {
+  Session,
+  SessionProviders,
+  SessionSummary,
+  SummaryJson,
+  Utterance
+} from './types';
+
+type SessionRow = {
+  id: string;
+  title: string;
+  created_at: number;
+  ended_at: number | null;
+  duration_ms: number | null;
+  provider_llm: string;
+  provider_stt: string;
+  status: SessionSummary['status'];
+  summary_json: string | null;
+  transcript: string;
+};
+
+type SessionSummaryRow = Omit<SessionRow, 'summary_json' | 'transcript'> & {
+  has_summary: number;
+};
+
+type UtteranceRow = {
+  id: number;
+  session_id: string;
+  started_ms: number;
+  ended_ms: number;
+  text: string;
+  is_final: number;
+};
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function formatSessionTitle(createdAt: number): string {
+  const created = new Date(createdAt);
+  const date = `${created.getFullYear()}-${pad(created.getMonth() + 1)}-${pad(created.getDate())}`;
+  const time = `${pad(created.getHours())}:${pad(created.getMinutes())}`;
+  return `${SESSION_RUNTIME_CONFIG.titlePrefix} · ${date} ${time}`;
+}
+
+function parseSummary(summaryJson: string | null): SummaryJson | null {
+  if (!summaryJson) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(summaryJson) as SummaryJson;
+  } catch {
+    return null;
+  }
+}
+
+function mapUtterance(row: UtteranceRow): Utterance {
+  return {
+    id: row.id,
+    sessionId: row.session_id,
+    startedMs: row.started_ms,
+    endedMs: row.ended_ms,
+    text: row.text,
+    isFinal: row.is_final === 1
+  };
+}
+
+function mapSessionSummary(row: SessionSummaryRow): SessionSummary {
+  return {
+    id: row.id,
+    title: row.title,
+    createdAt: row.created_at,
+    endedAt: row.ended_at,
+    durationMs: row.duration_ms,
+    providerLlm: row.provider_llm,
+    providerStt: row.provider_stt,
+    hasSummary: row.has_summary === 1,
+    status: row.status
+  };
+}
+
+function mapSession(row: SessionRow, utterances: UtteranceRow[]): Session {
+  return {
+    id: row.id,
+    title: row.title,
+    createdAt: row.created_at,
+    endedAt: row.ended_at,
+    durationMs: row.duration_ms,
+    providerLlm: row.provider_llm,
+    providerStt: row.provider_stt,
+    hasSummary: row.summary_json !== null,
+    status: row.status,
+    summary: parseSummary(row.summary_json),
+    transcript: row.transcript,
+    utterances: utterances.map(mapUtterance)
+  };
+}
+
+export class SessionService {
+  async startSession(providers: SessionProviders): Promise<Session> {
+    const sessionId = randomUUID();
+    const createdAt = Date.now();
+    const title = formatSessionTitle(createdAt);
+
+    await runDatabaseTask((database) => {
+      database
+        .prepare(
+          `INSERT INTO sessions (
+             id,
+             title,
+             created_at,
+             provider_llm,
+             provider_stt,
+             status,
+             summary_json,
+             transcript
+           )
+           VALUES (?, ?, ?, ?, ?, ?, NULL, '')`
+        )
+        .run(
+          sessionId,
+          title,
+          createdAt,
+          providers.llm,
+          providers.stt,
+          SESSION_RUNTIME_CONFIG.statusActive
+        );
+    });
+
+    return {
+      id: sessionId,
+      title,
+      createdAt,
+      endedAt: null,
+      durationMs: null,
+      providerLlm: providers.llm,
+      providerStt: providers.stt,
+      hasSummary: false,
+      status: SESSION_RUNTIME_CONFIG.statusActive,
+      summary: null,
+      transcript: '',
+      utterances: []
+    };
+  }
+
+  async appendUtterance(sessionId: string, utterance: Utterance): Promise<void> {
+    await runDatabaseTask((database) => {
+      database
+        .prepare(
+          `INSERT INTO utterances (session_id, started_ms, ended_ms, text, is_final)
+           VALUES (?, ?, ?, ?, ?)`
+        )
+        .run(
+          sessionId,
+          utterance.startedMs,
+          utterance.endedMs,
+          utterance.text,
+          utterance.isFinal ? 1 : 0
+        );
+    });
+  }
+
+  async endSession(sessionId: string): Promise<Session> {
+    return runDatabaseTask((database) => {
+      const sessionRow = database
+        .prepare(
+          `SELECT id, title, created_at, ended_at, duration_ms, provider_llm, provider_stt, status, summary_json, transcript
+           FROM sessions
+           WHERE id = ?`
+        )
+        .get(sessionId) as SessionRow | undefined;
+
+      if (!sessionRow) {
+        throw new Error(`Session not found: ${sessionId}`);
+      }
+
+      const utterances = database
+        .prepare(
+          `SELECT id, session_id, started_ms, ended_ms, text, is_final
+           FROM utterances
+           WHERE session_id = ?
+           ORDER BY started_ms ASC, id ASC`
+        )
+        .all(sessionId) as UtteranceRow[];
+
+      const lastEndedMs = utterances.at(-1)?.ended_ms ?? 0;
+      const endedAt = sessionRow.created_at + lastEndedMs;
+      const durationMs = Math.max(0, endedAt - sessionRow.created_at);
+      const transcript = utterances
+        .filter((utterance) => utterance.is_final === 1)
+        .map((utterance) => utterance.text.trim())
+        .filter(Boolean)
+        .join('\n');
+
+      const completeSession = database.transaction(() => {
+        database
+          .prepare(
+            `UPDATE sessions
+             SET ended_at = ?,
+                 duration_ms = ?,
+                 status = ?,
+                 transcript = ?
+             WHERE id = ?`
+          )
+          .run(
+            endedAt,
+            durationMs,
+            SESSION_RUNTIME_CONFIG.statusCompleted,
+            transcript,
+            sessionId
+          );
+
+        return database
+          .prepare(
+            `SELECT id, title, created_at, ended_at, duration_ms, provider_llm, provider_stt, status, summary_json, transcript
+             FROM sessions
+             WHERE id = ?`
+          )
+          .get(sessionId) as SessionRow;
+      });
+
+      return mapSession(completeSession(), utterances);
+    });
+  }
+
+  async getSessions(limit = SESSION_RUNTIME_CONFIG.listLimit): Promise<SessionSummary[]> {
+    return runDatabaseTask((database) => {
+      const rows = database
+        .prepare(
+          `SELECT
+             id,
+             title,
+             created_at,
+             ended_at,
+             duration_ms,
+             provider_llm,
+             provider_stt,
+             status,
+             CASE WHEN summary_json IS NULL THEN 0 ELSE 1 END AS has_summary
+           FROM sessions
+           ORDER BY created_at DESC
+           LIMIT ?`
+        )
+        .all(limit) as SessionSummaryRow[];
+
+      return rows.map(mapSessionSummary);
+    });
+  }
+
+  async getSession(id: string): Promise<Session> {
+    return runDatabaseTask((database) => {
+      const row = database
+        .prepare(
+          `SELECT id, title, created_at, ended_at, duration_ms, provider_llm, provider_stt, status, summary_json, transcript
+           FROM sessions
+           WHERE id = ?`
+        )
+        .get(id) as SessionRow | undefined;
+
+      if (!row) {
+        throw new Error(`Session not found: ${id}`);
+      }
+
+      const utterances = database
+        .prepare(
+          `SELECT id, session_id, started_ms, ended_ms, text, is_final
+           FROM utterances
+           WHERE session_id = ?
+           ORDER BY started_ms ASC, id ASC`
+        )
+        .all(id) as UtteranceRow[];
+
+      return mapSession(row, utterances);
+    });
+  }
+
+  async updateSummary(sessionId: string, summary: SummaryJson): Promise<void> {
+    await runDatabaseTask((database) => {
+      database
+        .prepare(
+          `UPDATE sessions
+           SET summary_json = ?
+           WHERE id = ?`
+        )
+        .run(JSON.stringify(summary), sessionId);
+    });
+  }
+
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    const nextTitle = title.trim();
+    if (!nextTitle) {
+      throw new Error('Session title cannot be empty');
+    }
+
+    await runDatabaseTask((database) => {
+      database
+        .prepare(
+          `UPDATE sessions
+           SET title = ?
+           WHERE id = ?`
+        )
+        .run(nextTitle, sessionId);
+    });
+  }
+}
+
+export const sessionService = new SessionService();

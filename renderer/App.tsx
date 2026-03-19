@@ -785,6 +785,7 @@ export default function App() {
           <TitleBar
             isRecording={isRecording}
             includeOverlayInScreenshots={settings.includeOverlayInScreenshots}
+            onEndAndReview={() => void window.electronAPI.endSessionAndReview?.()}
             onHide={() => void window.electronAPI.hideWindow()}
             onToggleRecording={() => void handleToggleRecording()}
             onToggleScreenshotOverlay={() => void handleToggleScreenshotOverlay()}

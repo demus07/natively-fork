@@ -10,34 +10,40 @@ import {
   ipcMain,
   screen,
   session,
+  shell,
   systemPreferences
 } from 'electron';
 import isDev from 'electron-is-dev';
 import {
   APP_BEHAVIOR,
+  LEGACY_PROVIDER_VALUES,
   PROVIDER_DEFAULTS,
   WINDOW_CONFIG
 } from '../src/config';
 import { IPC_CHANNELS } from '../src/shared';
 import { initAIHandlers } from './ipc/aiHandlers';
-import { initAudioHandlers } from './ipc/audioHandlers';
+import { initAudioHandlers, stopAudioCapturePipeline } from './ipc/audioHandlers';
 import { initScreenshotHandlers } from './ipc/screenshotHandlers';
+import { initSessionHandlers } from './ipc/sessionHandlers';
 import { initWindowHandlers, registerWindowShortcuts } from './ipc/windowHandlers';
 import { DeepgramProvider } from './providers/DeepgramProvider';
+import { CodexProvider } from './providers/CodexProvider';
 import { GeminiProvider } from './providers/GeminiProvider';
 import { OllamaProvider } from './providers/OllamaProvider';
 import { WhisperProvider } from './providers/WhisperProvider';
 import { createSetupWindow, closeSetupWindow } from './setupWindow';
-import { setCodexWindow } from './services/codex';
+import { clearActiveSession, getActiveSession, setActiveSession } from './services/activeSession';
 import {
   clearMessages,
   getAllSettings,
   getUsageStats,
   initDatabase,
-  loadSettingsCache,
   saveAllSettings
 } from './services/database';
 import { registry } from './services/providerRegistry';
+import { getDashboardAppUrl, startDashboardWebServer, stopDashboardWebServer } from './services/dashboardWebServer';
+import { sessionService } from './services/SessionService';
+import { summarizationService } from './services/SummarizationService';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,6 +52,10 @@ let mainWindow: BrowserWindow | null = null;
 let commonHandlersRegistered = false;
 let overlayHandlersRegistered = false;
 let setupHandlersRegistered = false;
+let sessionLifecycleHandlersRegistered = false;
+let overlayCloseInFlight = false;
+let overlaySessionEndPromise: Promise<string | null> | null = null;
+let pendingSummaryJobs = 0;
 
 const sessionId = `session-${Date.now()}`;
 
@@ -57,6 +67,14 @@ function getCodexBinaryCandidates(): string[] {
     path.join(os.homedir(), '.local', 'bin', 'codex'),
     'codex'
   ].filter(Boolean) as string[];
+}
+
+function normalizeCodexModel(model?: string): string {
+  const trimmedModel = (model || '').trim();
+  if (trimmedModel === LEGACY_PROVIDER_VALUES.codexUnsupportedDefaultModel) {
+    return '';
+  }
+  return trimmedModel;
 }
 
 function centerOverlayWindow(window: BrowserWindow): void {
@@ -76,6 +94,63 @@ function loadRendererPage(window: BrowserWindow, page: 'index' | 'setup'): void 
 
   const fileName = page === 'setup' ? 'setup.html' : 'index.html';
   void window.loadFile(path.join(app.getAppPath(), 'dist/renderer', fileName));
+}
+
+async function startOverlaySession(): Promise<void> {
+  const providers = registry.getActiveProviderLabels();
+  const session = await sessionService.startSession(providers);
+  setActiveSession({
+    sessionId: session.id,
+    createdAt: session.createdAt,
+    providerLlm: session.providerLlm,
+    providerStt: session.providerStt
+  });
+  console.log('[SESSION] Started overlay session', {
+    sessionId: session.id,
+    providers
+  });
+}
+
+async function endActiveOverlaySession(): Promise<string | null> {
+  const activeSession = getActiveSession();
+  if (!activeSession) {
+    return null;
+  }
+
+  if (!overlaySessionEndPromise) {
+    overlaySessionEndPromise = (async () => {
+      try {
+        stopAudioCapturePipeline();
+        const session = await sessionService.endSession(activeSession.sessionId);
+        pendingSummaryJobs += 1;
+        void summarizationService
+          .summarizeSession(session.id)
+          .catch((error) => {
+            console.warn('[SUMMARY] Background summarization failed', error);
+          })
+          .finally(() => {
+            pendingSummaryJobs = Math.max(0, pendingSummaryJobs - 1);
+          });
+        console.log('[SESSION] Ended overlay session', {
+          sessionId: session.id,
+          durationMs: session.durationMs,
+          utteranceCount: session.utterances.length
+        });
+        return session.id;
+      } finally {
+        clearActiveSession();
+        overlaySessionEndPromise = null;
+      }
+    })();
+  }
+
+  return overlaySessionEndPromise;
+}
+
+function resetOverlayLifecycle(): void {
+  mainWindow = null;
+  overlayHandlersRegistered = false;
+  overlayCloseInFlight = false;
 }
 
 function createMainWindow(): BrowserWindow {
@@ -120,6 +195,7 @@ function createMainWindow(): BrowserWindow {
 
 function areProviderSettingsComplete(settings: ReturnType<typeof getAllSettings>): boolean {
   const hasLlm =
+    settings.llmProvider === 'codex' ||
     (settings.llmProvider === 'gemini' && Boolean(settings.geminiApiKey.trim())) ||
     (settings.llmProvider === 'ollama' && Boolean(settings.ollamaEndpoint.trim()));
   const hasStt =
@@ -173,11 +249,11 @@ function registerCommonHandlers(): void {
   commonHandlersRegistered = true;
 
   ipcMain.handle(IPC_CHANNELS.getSettings, () => getAllSettings());
-  ipcMain.handle(IPC_CHANNELS.saveSettings, (_event, settings) => saveAllSettings(settings));
-  ipcMain.handle(IPC_CHANNELS.clearHistory, () => {
-    clearMessages();
+  ipcMain.handle(IPC_CHANNELS.saveSettings, async (_event, settings) => saveAllSettings(settings));
+  ipcMain.handle(IPC_CHANNELS.clearHistory, async () => {
+    await clearMessages();
   });
-  ipcMain.handle(IPC_CHANNELS.getUsageStats, () => getUsageStats());
+  ipcMain.handle(IPC_CHANNELS.getUsageStats, async () => getUsageStats());
 
   ipcMain.handle(IPC_CHANNELS.getCodexStatus, () => {
     for (const candidate of getCodexBinaryCandidates()) {
@@ -218,7 +294,32 @@ async function launchOverlay(): Promise<void> {
   }
 
   mainWindow = createMainWindow();
-  setCodexWindow(mainWindow);
+  await startOverlaySession();
+
+  mainWindow.on('close', (event) => {
+    if (overlayCloseInFlight) {
+      return;
+    }
+
+    if (!getActiveSession()) {
+      resetOverlayLifecycle();
+      return;
+    }
+
+    event.preventDefault();
+    overlayCloseInFlight = true;
+    void endActiveOverlaySession()
+      .catch((error) => {
+        console.error('[SESSION] Failed to end active session during overlay close', error);
+      })
+      .finally(() => {
+        mainWindow?.destroy();
+      });
+  });
+
+  mainWindow.on('closed', () => {
+    resetOverlayLifecycle();
+  });
 
   initWindowHandlers(mainWindow);
   initAudioHandlers(mainWindow);
@@ -244,6 +345,31 @@ async function launchOverlay(): Promise<void> {
   overlayHandlersRegistered = true;
 }
 
+function registerSessionLifecycleHandlers(): void {
+  if (sessionLifecycleHandlersRegistered) {
+    return;
+  }
+
+  sessionLifecycleHandlersRegistered = true;
+
+  ipcMain.handle(IPC_CHANNELS.endSessionAndReview, async () => {
+    overlayCloseInFlight = true;
+    const sessionId = await endActiveOverlaySession();
+
+    if (sessionId) {
+      await shell.openExternal(getDashboardAppUrl(sessionId));
+    }
+
+    mainWindow?.destroy();
+    return { success: true, sessionId };
+  });
+
+  ipcMain.handle(IPC_CHANNELS.dashboardOpen, async (_event, payload?: { sessionId?: string }) => {
+    await shell.openExternal(getDashboardAppUrl(payload?.sessionId));
+    return { ok: true };
+  });
+}
+
 function registerSetupHandlers(): void {
   if (setupHandlersRegistered) {
     return;
@@ -255,7 +381,8 @@ function registerSetupHandlers(): void {
     async (
       _event,
       config: {
-        provider: 'gemini' | 'ollama';
+        provider: 'codex' | 'gemini' | 'ollama';
+        codexModel?: string;
         geminiApiKey?: string;
         geminiModel?: string;
         ollamaEndpoint?: string;
@@ -263,6 +390,13 @@ function registerSetupHandlers(): void {
       }
     ) => {
       try {
+        if (config.provider === 'codex') {
+          const provider = new CodexProvider({
+            model: normalizeCodexModel(config.codexModel || PROVIDER_DEFAULTS.codexModel)
+          });
+          return await provider.testConnection();
+        }
+
         if (config.provider === 'gemini') {
           const provider = new GeminiProvider({
             apiKey: config.geminiApiKey || '',
@@ -314,7 +448,7 @@ function registerSetupHandlers(): void {
   );
 
   ipcMain.handle('setup:saveSettings', async (_event, settings) => {
-    saveAllSettings(settings);
+    await saveAllSettings(settings);
     return { ok: true };
   });
 
@@ -352,10 +486,12 @@ async function bootstrap(): Promise<void> {
     registerPermissionHandlers();
     await requestMacMicrophonePermission();
 
-    initDatabase();
-    loadSettingsCache();
+    await initDatabase();
+    await startDashboardWebServer();
     registerCommonHandlers();
     registerSetupHandlers();
+    registerSessionLifecycleHandlers();
+    initSessionHandlers();
 
     // Current product behavior is to route every launch through setup so users can pick providers each time.
     if (APP_BEHAVIOR.alwaysShowSetupOnLaunch || !areProviderSettingsComplete(getAllSettings())) {
@@ -385,6 +521,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
   }
+});
+
+app.on('before-quit', () => {
+  void stopDashboardWebServer().catch((error) => {
+    console.warn('[DASHBOARD API] Failed to stop cleanly', error);
+  });
 });
 
 app.on('will-quit', () => {

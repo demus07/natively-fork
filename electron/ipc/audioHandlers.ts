@@ -1,10 +1,41 @@
 import { ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
+import { SESSION_RUNTIME_CONFIG } from '../../src/config';
 import { registry } from '../services/providerRegistry';
+import { getActiveSession } from '../services/activeSession';
+import { sessionService } from '../services/SessionService';
 
 let pendingStartTimer: NodeJS.Timeout | null = null;
 let listenersBound = false;
 let handlersRegistered = false;
+
+function estimateUtteranceDuration(text: string): number {
+  return Math.max(
+    SESSION_RUNTIME_CONFIG.minUtteranceDurationMs,
+    Math.min(
+      SESSION_RUNTIME_CONFIG.maxUtteranceDurationMs,
+      text.trim().length * SESSION_RUNTIME_CONFIG.estimatedUtteranceMsPerCharacter
+    )
+  );
+}
+
+function cleanupAudioListeners(): void {
+  const stt = registry.getSTT();
+  if (pendingStartTimer) {
+    clearTimeout(pendingStartTimer);
+    pendingStartTimer = null;
+  }
+  stt.stop();
+  stt.removeAllListeners('transcript');
+  stt.removeAllListeners('interim');
+  stt.removeAllListeners('error');
+  stt.removeAllListeners('status');
+  listenersBound = false;
+}
+
+export function stopAudioCapturePipeline(): void {
+  cleanupAudioListeners();
+}
 
 export function initAudioHandlers(mainWindow: BrowserWindow): void {
   const bindListeners = () => {
@@ -23,6 +54,21 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
     });
 
     stt.on('transcript', (text: string) => {
+      const activeSession = getActiveSession();
+      if (activeSession) {
+        const endedMs = Math.max(0, Date.now() - activeSession.createdAt);
+        const startedMs = Math.max(0, endedMs - estimateUtteranceDuration(text));
+        void sessionService.appendUtterance(activeSession.sessionId, {
+          sessionId: activeSession.sessionId,
+          startedMs,
+          endedMs,
+          text,
+          isFinal: true
+        }).catch((error) => {
+          console.warn('[SESSION] Failed to append utterance:', error);
+        });
+      }
+
       if (!mainWindow.isDestroyed()) {
         mainWindow.webContents.send(IPC_CHANNELS.transcriptUpdate, {
           text,
@@ -93,17 +139,7 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
     });
 
     ipcMain.handle(IPC_CHANNELS.stopAudioCapture, async () => {
-      if (pendingStartTimer) {
-        clearTimeout(pendingStartTimer);
-        pendingStartTimer = null;
-      }
-      const stt = registry.getSTT();
-      stt.stop();
-      stt.removeAllListeners('transcript');
-      stt.removeAllListeners('interim');
-      stt.removeAllListeners('error');
-      stt.removeAllListeners('status');
-      listenersBound = false;
+      cleanupAudioListeners();
       return { success: true };
     });
 

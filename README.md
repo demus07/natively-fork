@@ -1,16 +1,91 @@
 # Natively
 
-Natively is an Electron overlay assistant for meetings, interviews, and live problem solving. It captures live transcript context, grabs the current screen, and routes prompts to a selectable LLM provider. On launch, the app opens a setup window so the user can choose an LLM (`Ollama` or `Gemini`) and an STT backend (`faster-whisper` or `Deepgram`) before opening the overlay.
+Natively is an Electron desktop overlay for meetings, interviews, and live problem-solving. It captures live audio, transcribes it with a selectable STT provider, routes prompts to a selectable LLM provider, and now persists each overlay run as a reviewable session with transcript history and a post-session summary.
 
-## What It Does
+## Current Product Flow
 
-- shows a floating always-on-top overlay
-- captures microphone audio and optional BlackHole system audio in the renderer
-- streams PCM to the main process for speech recognition
-- supports local `faster-whisper` and cloud `Deepgram`
-- captures full-screen context for AI requests
-- supports local `Ollama` and cloud `Gemini`
-- persists settings and usage in SQLite
+1. On launch, Natively opens the setup window.
+2. The user chooses:
+   - LLM: `Ollama` or `Gemini`
+   - STT: `faster-whisper` or `Deepgram`
+3. The overlay opens and starts a new persisted session.
+4. Final transcript chunks are stored in SQLite during the session.
+5. Clicking `End + review` ends the session, generates a structured summary in the background, and opens the Dashboard.
+6. The Dashboard shows past sessions, transcript history, summary data, and an embedded `Helper Settings` view in the sidebar.
+
+## Features
+
+- always-on-top overlay for live assistance
+- provider setup window on launch
+- browser-based audio capture with microphone and optional BlackHole system audio on macOS
+- selectable STT:
+  - local `faster-whisper`
+  - cloud `Deepgram`
+- selectable LLM:
+  - local `Ollama`
+  - cloud `Gemini`
+- screenshot-assisted prompting
+- per-session persistence in SQLite
+- utterance-level transcript storage
+- automatic post-session structured summaries
+- Dashboard window for reviewing previous sessions
+- embedded `Helper Settings` panel inside the Dashboard
+
+## Runtime Architecture
+
+### Windows
+
+- `Setup window`
+  - Electron `BrowserWindow`
+  - React UI in `renderer/SetupApp.tsx`
+  - used to choose providers and save settings
+
+- `Overlay window`
+  - Electron `BrowserWindow`
+  - React UI in `renderer/App.tsx`
+  - live transcript, AI interaction, screenshot actions, and session controls
+
+- `Dashboard window`
+  - Electron `BrowserWindow`
+  - React web UI in `renderer/DashboardApp.tsx`
+  - talks to a local dashboard HTTP/SSE API instead of Electron preload IPC
+  - session history, summaries, transcript review, and Helper Settings
+
+### Audio and Transcript Path
+
+- Renderer captures audio with `getUserMedia`
+- optional BlackHole input is used for system audio capture on macOS
+- PCM is sent to the main process over IPC
+- STT provider is selected through `electron/services/providerRegistry.ts`
+- final transcript chunks are:
+  - emitted to the overlay UI
+  - appended to `utterances` in SQLite
+- when the session ends, `SessionService` assembles the full transcript and marks the session complete
+
+### Session and Summary Path
+
+- each overlay launch starts a new session in SQLite
+- session metadata includes:
+  - start time
+  - end time
+  - duration
+  - active LLM provider
+  - active STT provider
+- every final transcript chunk is stored as an utterance
+- on session end:
+  - transcript is finalized
+  - summarization runs in the background using the active LLM provider
+  - `summary_json` is written back to SQLite
+  - the Dashboard updates reactively when the summary arrives
+
+## Tech Stack
+
+- Electron
+- React
+- TypeScript
+- Vite
+- SQLite via `better-sqlite3`
+- Python sidecar for `faster-whisper`
 
 ## Run Locally
 
@@ -27,7 +102,7 @@ npm run dist:mac
 npm run dist:win
 ```
 
-If Electron native modules drift after packaging, rebuild them with:
+If native Electron modules drift after packaging or rebuilds:
 
 ```bash
 npx electron-builder install-app-deps
@@ -35,83 +110,122 @@ npx electron-builder install-app-deps
 
 ## Requirements
 
-Choose one LLM path:
+### LLM options
 
-- `Ollama`: local Ollama running and the selected model pulled
-- `Gemini`: internet access plus a Gemini API key
+- `Ollama`
+  - local Ollama server running
+  - selected model already pulled
 
-Choose one STT path:
+- `Gemini`
+  - internet access
+  - valid Gemini API key
 
-- `faster-whisper`: Python 3.8+ plus `pip install faster-whisper`
-- `Deepgram`: internet access plus a Deepgram API key
+### STT options
 
-Optional for system audio transcription on macOS:
+- `faster-whisper`
+  - Python 3.8+
+  - `pip install faster-whisper`
 
-- `BlackHole 2ch`
+- `Deepgram`
+  - internet access
+  - valid Deepgram API key
 
-The app also needs macOS microphone and screen recording permissions.
+### Optional system audio transcription
+
+- `BlackHole 2ch` on macOS
+
+### Permissions
+
+- microphone access
+- screen capture / screen recording permission
 
 ## Project Structure
 
 ```text
 electron/
-  ipc/                 Main-process IPC handlers
-  providers/           LLM/STT provider implementations
-  services/            Main-process orchestration, persistence, routing
-  main.ts              Electron bootstrap and window lifecycle
-  preload.ts           Safe renderer bridge
-  setupWindow.ts       First-run / per-launch provider setup window
+  ipc/                         Main-process IPC handlers
+  providers/                   LLM and STT provider implementations
+  services/                    Persistence, orchestration, session logic
+    db/migrations/             SQLite migrations
+    SessionService.ts          Session and utterance persistence
+    SummarizationService.ts    Post-session summary generation
+    providerRegistry.ts        Active provider selection
+  dashboardWindow.ts           Dashboard BrowserWindow lifecycle
+  main.ts                      Electron bootstrap and window lifecycle
+  preload.ts                   Overlay/setup preload bridge
+  setupWindow.ts               Setup BrowserWindow lifecycle
+  services/dashboardWebServer.ts Local HTTP + SSE API for the dashboard
 
 renderer/
-  components/          Overlay and setup UI pieces
-  hooks/               Renderer-side state and IPC hooks
-  types/               Shared renderer-facing types
-  App.tsx              Overlay application shell
-  SetupApp.tsx         Provider setup UI
+  components/                  Overlay UI components
+  components/dashboard/        Dashboard UI components
+  hooks/                       Overlay-side state and IPC hooks
+  App.tsx                      Overlay root
+  SetupApp.tsx                 Setup root
+  DashboardApp.tsx             Dashboard root
+  dashboard-main.tsx           Dashboard renderer entry
 
 src/
-  shared.ts            IPC channel constants and shared dimensions
-  config.ts            Centralized runtime defaults and magic numbers
+  shared.ts                    IPC channels and shared constants
+  config.ts                    Runtime defaults and magic numbers
 
 scripts/
-  transcribe_server.py Python faster-whisper worker
+  transcribe_server.py         Python faster-whisper worker
 
 public/
-  audioWorklet.js      PCM extraction worklet
+  audioWorklet.js              PCM extraction worklet
 
 native-module/
-  Rust audio capture module kept for future/native experimentation
+  Experimental native audio module resources
 ```
+
+## Data Persistence
+
+SQLite lives at:
+
+```text
+~/Library/Application Support/natively/natively.db
+```
+
+Key tables:
+
+- `settings`
+- `sessions`
+- `utterances`
+- `usage`
+- `schema_migrations`
 
 ## Environment Variables
 
-Optional:
+Most runtime settings are persisted through the setup flow, not read from env on every launch.
+
+Optional environment variables still relevant to local development:
 
 - `GEMINI_API_KEY`
 - `DEEPGRAM_API_KEY`
 - `CODEX_BIN`
-
-Most current provider settings are persisted in SQLite through the setup UI instead of being read from env on every launch.
-
-## Active Architecture
-
-- Setup window launches first and saves provider settings.
-- The overlay opens after setup completes.
-- Renderer audio capture sends PCM chunks over IPC.
-- The active STT provider is selected through `electron/services/providerRegistry.ts`.
-- AI requests are routed through the active LLM provider from the same registry.
-- Screenshots are captured in the main process and attached when the chosen LLM supports vision.
+- `VITE_DEV_SERVER_URL`
 
 ## Packaging
 
-The repo is configured for `electron-builder`.
+The project is configured for `electron-builder`.
 
-- Apple Silicon DMG: `npm run dist:mac`
+Build targets:
+
+- macOS DMG: `npm run dist:mac`
 - Windows installer: `npm run dist:win`
 
 Packaged builds include:
 
 - Electron app bundle
+- Dashboard and overlay renderer bundles
 - Python transcription script
 - native module resources
 - macOS entitlements for microphone access
+
+## Current Notes
+
+- setup currently opens on every launch by design
+- Dashboard and Helper Settings live in the same web-based Dashboard UI
+- transcript export was replaced by the session review flow
+- some legacy Codex-related settings/types still exist in the repo, but they are not the active LLM path

@@ -4,16 +4,22 @@ import { DeepgramProvider } from '../providers/DeepgramProvider';
 import { GeminiProvider } from '../providers/GeminiProvider';
 import { OllamaProvider } from '../providers/OllamaProvider';
 import { WhisperProvider } from '../providers/WhisperProvider';
-import { AI_RUNTIME_CONFIG, PROVIDER_DEFAULTS } from '../../src/config';
+import { CodexProvider } from '../providers/CodexProvider';
+import { AI_RUNTIME_CONFIG, LEGACY_PROVIDER_VALUES, PROVIDER_DEFAULTS } from '../../src/config';
 
 export interface ProviderSettings {
-  llmProvider: 'ollama' | 'gemini';
+  llmProvider: 'codex' | 'openai' | 'anthropic' | 'ollama' | 'gemini';
+  openaiApiKey: string;
+  anthropicApiKey: string;
   geminiApiKey: string;
   geminiModel: string;
   ollamaEndpoint: string;
   ollamaModel: string;
-  sttProvider: 'deepgram' | 'whisper';
+  codexModel: string;
+  codexExtraFlags: string;
+  sttProvider: 'deepgram' | 'sarvam' | 'whisper';
   deepgramApiKey: string;
+  sarvamApiKey: string;
   deepgramModel: string;
   whisperModel: string;
   whisperLanguage: string;
@@ -25,20 +31,49 @@ export interface ProviderSettings {
 class ProviderRegistry {
   private llm: LLMProvider | null = null;
   private stt: STTProvider | null = null;
+  private activeLlmLabel = '';
+  private activeSttLabel = '';
+
+  private logProviderFallback(providerType: 'llm' | 'stt', providerName: string, fallbackName: string): void {
+    console.warn(
+      `[REGISTRY] ${providerType.toUpperCase()} provider "${providerName}" is saved in settings but not implemented yet — falling back to ${fallbackName}`
+    );
+  }
+
+  private normalizeCodexModel(model: string | undefined): string {
+    const trimmedModel = (model || '').trim();
+    if (trimmedModel === LEGACY_PROVIDER_VALUES.codexUnsupportedDefaultModel) {
+      return '';
+    }
+    return trimmedModel;
+  }
 
   initFromSettings(settings: Partial<ProviderSettings>): void {
-    if (settings.llmProvider === 'gemini' && settings.geminiApiKey) {
+    if (settings.llmProvider === 'codex') {
+      const codexModel = this.normalizeCodexModel(settings.codexModel || PROVIDER_DEFAULTS.codexModel);
+      this.llm = new CodexProvider({
+        model: codexModel,
+        extraFlags: settings.codexExtraFlags || ''
+      });
+      this.activeLlmLabel = codexModel ? `codex:${codexModel}` : 'codex:default';
+    } else if (settings.llmProvider === 'gemini' && settings.geminiApiKey) {
       this.llm = new GeminiProvider({
         apiKey: settings.geminiApiKey,
         model: settings.geminiModel || PROVIDER_DEFAULTS.geminiModel
       });
+      this.activeLlmLabel = `gemini:${settings.geminiModel || PROVIDER_DEFAULTS.geminiModel}`;
     } else {
+      if (settings.llmProvider && settings.llmProvider !== 'ollama') {
+        this.logProviderFallback('llm', settings.llmProvider, 'ollama');
+      }
+      const ollamaModel = settings.ollamaModel || PROVIDER_DEFAULTS.ollamaModel;
       this.llm = new OllamaProvider({
         endpoint: settings.ollamaEndpoint || PROVIDER_DEFAULTS.ollamaEndpoint,
-        model: settings.ollamaModel || PROVIDER_DEFAULTS.ollamaModel,
+        model: ollamaModel,
         numCtx: AI_RUNTIME_CONFIG.ollamaContextWindow,
         maxTokens: AI_RUNTIME_CONFIG.ollamaMaxTokens
       });
+      this.activeLlmLabel = `ollama:${ollamaModel}`;
     }
 
     if (this.stt) {
@@ -47,18 +82,25 @@ class ProviderRegistry {
     }
 
     if (settings.sttProvider === 'deepgram' && settings.deepgramApiKey) {
+      const deepgramModel = settings.deepgramModel || PROVIDER_DEFAULTS.deepgramModel;
       this.stt = new DeepgramProvider({
         apiKey: settings.deepgramApiKey,
-        model: settings.deepgramModel || PROVIDER_DEFAULTS.deepgramModel
+        model: deepgramModel
       });
+      this.activeSttLabel = `deepgram:${deepgramModel}`;
     } else {
+      if (settings.sttProvider && settings.sttProvider !== 'whisper') {
+        this.logProviderFallback('stt', settings.sttProvider, 'whisper');
+      }
+      const whisperModel = settings.whisperModel || PROVIDER_DEFAULTS.whisperModel;
       this.stt = new WhisperProvider({
-        model: settings.whisperModel || PROVIDER_DEFAULTS.whisperModel,
+        model: whisperModel,
         language: settings.whisperLanguage || PROVIDER_DEFAULTS.whisperLanguage,
         computeType: settings.whisperComputeType || PROVIDER_DEFAULTS.whisperComputeType,
         device: settings.whisperDevice || PROVIDER_DEFAULTS.whisperDevice,
         pythonBin: settings.whisperPythonBin || ''
       });
+      this.activeSttLabel = `whisper:${whisperModel}`;
     }
 
     console.log(`[REGISTRY] LLM: ${this.llm?.name ?? 'none'}, STT: ${this.stt?.name ?? 'none'}`);
@@ -76,6 +118,13 @@ class ProviderRegistry {
       throw new Error('STT provider not initialised — complete setup first');
     }
     return this.stt;
+  }
+
+  getActiveProviderLabels(): { llm: string; stt: string } {
+    return {
+      llm: this.activeLlmLabel || this.getLLM().name,
+      stt: this.activeSttLabel || this.getSTT().name
+    };
   }
 }
 

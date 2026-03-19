@@ -1,9 +1,10 @@
-import { EyeOff, Mic, Monitor } from 'lucide-react';
+import { EyeOff, Flag, Mic, Monitor } from 'lucide-react';
 import iconUrl from '../assets/icon.png';
 
 interface TitleBarProps {
   isRecording: boolean;
   includeOverlayInScreenshots: boolean;
+  onEndAndReview: () => void;
   onHide: () => void;
   onToggleRecording: () => void;
   onToggleScreenshotOverlay: () => void;
@@ -12,6 +13,7 @@ interface TitleBarProps {
 export default function TitleBar({
   isRecording,
   includeOverlayInScreenshots,
+  onEndAndReview,
   onHide,
   onToggleRecording,
   onToggleScreenshotOverlay
@@ -33,6 +35,15 @@ export default function TitleBar({
         </button>
       </div>
       <div className="titlebar-right no-drag">
+        <button
+          type="button"
+          className="capsule-hide-btn no-drag"
+          onClick={onEndAndReview}
+          title="End this session and open review"
+        >
+          <Flag size={12} />
+          <span>End + review</span>
+        </button>
         <button
           type="button"
           className={`capsule-display-btn ${includeOverlayInScreenshots ? 'capsule-display-btn-active' : ''}`}

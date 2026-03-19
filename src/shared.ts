@@ -27,7 +27,16 @@ export const IPC_CHANNELS = {
   saveSettings: 'save-settings',
   getConversationHistory: 'get-conversation-history',
   clearHistory: 'clear-history',
-  getUsageStats: 'get-usage-stats'
+  getUsageStats: 'get-usage-stats',
+  SESSION_START: 'session-start',
+  SESSION_END: 'session-end',
+  SESSION_GET: 'session-get',
+  SESSION_LIST: 'session-list',
+  SESSION_RENAME: 'session-rename',
+  SESSION_SUMMARY_UPDATE: 'session-summary-update',
+  OPEN_DASHBOARD: 'open-dashboard',
+  endSessionAndReview: 'end-session-and-review',
+  dashboardOpen: 'dashboard-open'
 } as const;
 
 export const WINDOW_DIMENSIONS = {

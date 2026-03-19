@@ -1,4 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
+export {};
 
 const IPC_CHANNELS = {
   hideWindow: 'window-hide',
@@ -29,7 +30,8 @@ const IPC_CHANNELS = {
   saveSettings: 'save-settings',
   getConversationHistory: 'get-conversation-history',
   clearHistory: 'clear-history',
-  getUsageStats: 'get-usage-stats'
+  getUsageStats: 'get-usage-stats',
+  endSessionAndReview: 'end-session-and-review'
 } as const;
 
 const electronAPI = {
@@ -103,6 +105,7 @@ const electronAPI = {
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.getSettings),
   getCodexStatus: () => ipcRenderer.invoke(IPC_CHANNELS.getCodexStatus),
   saveSettings: (settings: unknown) => ipcRenderer.invoke(IPC_CHANNELS.saveSettings, settings),
+  endSessionAndReview: () => ipcRenderer.invoke(IPC_CHANNELS.endSessionAndReview),
   getConversationHistory: () => ipcRenderer.invoke(IPC_CHANNELS.getConversationHistory),
   clearHistory: () => ipcRenderer.invoke(IPC_CHANNELS.clearHistory) as Promise<void>,
   getUsageStats: () => ipcRenderer.invoke(IPC_CHANNELS.getUsageStats),

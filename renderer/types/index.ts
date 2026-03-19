@@ -1,4 +1,6 @@
-export type AIProvider = 'ollama' | 'gemini' | 'codex';
+export type AIProvider = 'ollama' | 'gemini' | 'codex' | 'openai' | 'anthropic';
+export type LLMProvider = 'codex' | 'openai' | 'anthropic' | 'gemini' | 'ollama';
+export type STTProvider = 'deepgram' | 'sarvam' | 'whisper';
 export type AIRequestType = 'answer' | 'shorten' | 'recap' | 'followup' | 'custom';
 export type ActionType = 'answer' | 'shorten' | 'recap' | 'followup' | 'answer_now' | 'custom';
 
@@ -12,13 +14,16 @@ export interface Message {
 
 export interface Settings {
   aiProvider: string;
-  llmProvider: 'ollama' | 'gemini';
+  llmProvider: LLMProvider;
+  openaiApiKey: string;
+  anthropicApiKey: string;
   geminiApiKey: string;
   geminiModel: string;
   ollamaEndpoint: string;
   ollamaModel: string;
-  sttProvider: 'deepgram' | 'whisper';
+  sttProvider: STTProvider;
   deepgramApiKey: string;
+  sarvamApiKey: string;
   deepgramModel: string;
   codexModel: string;
   codexExtraFlags: string;
@@ -59,6 +64,58 @@ export interface ContentDimensions {
   height: number;
 }
 
+export interface DashboardActionItem {
+  text: string;
+  owner: string | null;
+}
+
+export interface DashboardSummary {
+  overview: string;
+  topics: string[];
+  action_items: DashboardActionItem[];
+  decisions: string[];
+  follow_ups: string[];
+  went_well: string[];
+  to_improve: string[];
+}
+
+export interface DashboardUtterance {
+  id?: number;
+  sessionId: string;
+  startedMs: number;
+  endedMs: number;
+  text: string;
+  isFinal: boolean;
+}
+
+export interface DashboardSessionSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  endedAt: number | null;
+  durationMs: number | null;
+  providerLlm: string;
+  providerStt: string;
+  hasSummary: boolean;
+  status: 'active' | 'completed';
+}
+
+export interface DashboardSession extends DashboardSessionSummary {
+  summary: DashboardSummary | null;
+  transcript: string;
+  utterances: DashboardUtterance[];
+}
+
+export interface IPCResult<T> {
+  ok: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    details?: unknown;
+  };
+}
+
 export interface ElectronAPI {
   hideWindow: () => void;
   showWindow: () => void;
@@ -85,6 +142,7 @@ export interface ElectronAPI {
   getSettings: () => Promise<Settings>;
   getCodexStatus?: () => Promise<{ found: boolean; path: string | null }>;
   saveSettings: (settings: Settings) => Promise<void>;
+  endSessionAndReview?: () => Promise<{ success: boolean; sessionId: string | null }>;
   getConversationHistory: () => Promise<Message[]>;
   clearHistory: () => Promise<void>;
   getUsageStats: () => Promise<UsageStats>;
