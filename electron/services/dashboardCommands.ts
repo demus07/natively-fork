@@ -1,5 +1,5 @@
 type DashboardCommandHandlers = {
-  launchOverlay: () => Promise<void>;
+  launchOverlay: (sessionId?: string) => Promise<void>;
 };
 
 let handlers: DashboardCommandHandlers | null = null;
@@ -8,10 +8,10 @@ export function registerDashboardCommandHandlers(nextHandlers: DashboardCommandH
   handlers = nextHandlers;
 }
 
-export async function launchOverlayFromDashboard(): Promise<void> {
+export async function launchOverlayFromDashboard(sessionId?: string): Promise<void> {
   if (!handlers) {
     throw new Error('Dashboard command handlers are not registered');
   }
 
-  await handlers.launchOverlay();
+  await handlers.launchOverlay(sessionId);
 }

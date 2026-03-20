@@ -125,7 +125,6 @@ export default function OverviewTab({
       >
         <p className="dashboard-overview-copy">{summary.overview}</p>
       </OverviewCard>
-
       <OverviewCard label="Topics">{renderList(summary.topics)}</OverviewCard>
       <OverviewCard label="Decisions">{renderList(summary.decisions)}</OverviewCard>
 

@@ -4,6 +4,7 @@ export const IPC_CHANNELS = {
   moveWindow: 'window-move',
   updateContentDimensions: 'window-update-content-dimensions',
   setWindowOpacity: 'window-set-opacity',
+  setWindowClickThrough: 'window-set-click-through',
   quitApp: 'window-quit',
   triggerAnswer: 'trigger-answer',
   captureFullScreen: 'capture-full-screen',
@@ -12,6 +13,7 @@ export const IPC_CHANNELS = {
   startAudioCapture: 'start-audio-capture',
   stopAudioCapture: 'stop-audio-capture',
   pushAudioChunk: 'push-audio-chunk',
+  setAudioSourceHint: 'set-audio-source-hint',
   rendererDebugLog: 'renderer-debug-log',
   transcriptInterim: 'transcript-interim',
   transcriptUpdate: 'transcript-update',
@@ -26,6 +28,7 @@ export const IPC_CHANNELS = {
   getCodexStatus: 'get-codex-status',
   saveSettings: 'save-settings',
   getConversationHistory: 'get-conversation-history',
+  getActiveOverlayState: 'get-active-overlay-state',
   clearHistory: 'clear-history',
   getUsageStats: 'get-usage-stats',
   SESSION_START: 'session-start',
@@ -35,6 +38,7 @@ export const IPC_CHANNELS = {
   SESSION_RENAME: 'session-rename',
   SESSION_SUMMARY_UPDATE: 'session-summary-update',
   OPEN_DASHBOARD: 'open-dashboard',
+  closeOverlaySession: 'close-overlay-session',
   endSessionAndReview: 'end-session-and-review',
   dashboardOpen: 'dashboard-open'
 } as const;

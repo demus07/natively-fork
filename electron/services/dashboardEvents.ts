@@ -4,6 +4,7 @@ import type { SummaryJson } from './types';
 interface SummaryUpdatePayload {
   sessionId: string;
   summary: SummaryJson;
+  title: string;
 }
 
 class DashboardEvents extends EventEmitter {

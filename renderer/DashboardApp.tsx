@@ -16,11 +16,16 @@ function getRequestedSessionId(): string | null {
   return params.get('sessionId');
 }
 
+function getRequestedMode(): SidebarMode {
+  const params = new URLSearchParams(window.location.search);
+  return params.get('mode') === 'settings' ? 'settings' : 'sessions';
+}
+
 export default function DashboardApp() {
   const [sessions, setSessions] = useState<DashboardSessionSummary[]>([]);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(getRequestedSessionId());
   const [selectedSession, setSelectedSession] = useState<DashboardSession | null>(null);
-  const [mode, setMode] = useState<SidebarMode>('sessions');
+  const [mode, setMode] = useState<SidebarMode>(getRequestedMode());
   const [settings, setSettings] = useState<Settings | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { toasts, pushToast, removeToast } = useToast();
@@ -66,13 +71,13 @@ export default function DashboardApp() {
   }, [selectedSessionId, mode]);
 
   useEffect(() => {
-    const offSummary = dashboardClient.onSessionSummaryUpdate(({ sessionId, summary }) => {
+    const offSummary = dashboardClient.onSessionSummaryUpdate(({ sessionId, summary, title }) => {
       setSessions((current) =>
-        current.map((session) => (session.id === sessionId ? { ...session, hasSummary: true } : session))
+        current.map((session) => (session.id === sessionId ? { ...session, hasSummary: true, title } : session))
       );
       setSelectedSession((current) =>
         current && current.id === sessionId
-          ? { ...current, summary: summary as DashboardSummary, hasSummary: true }
+          ? { ...current, title, summary: summary as DashboardSummary, hasSummary: true }
           : current
       );
     });
@@ -164,7 +169,11 @@ export default function DashboardApp() {
       />
 
       <main className="dashboard-main">
-        {mode === 'settings' && settings ? (
+        {mode === 'settings' && !settings ? (
+          <div className="dashboard-empty-state">
+            <h2>Loading settings…</h2>
+          </div>
+        ) : mode === 'settings' && settings ? (
           <HelperSettingsView settings={settings} onSettingsSaved={setSettings} />
         ) : sessions.length === 0 ? (
           <EmptyState onLaunchOverlay={() => void handleLaunchOverlay()} />

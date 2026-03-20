@@ -89,7 +89,7 @@ export default function Sidebar({
       <div className="dashboard-sidebar-section">
         <p className="dashboard-sidebar-section-label">Workspace</p>
         <button type="button" className={helperSettingsClassName} onClick={onSelectHelperSettings}>
-          <div className="dashboard-session-item-title">Helper Settings</div>
+          <div className="dashboard-session-item-title">Settings</div>
           <div className="dashboard-session-item-meta">
             <span>Providers</span>
             <span>Preferences</span>

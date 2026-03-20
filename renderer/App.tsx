@@ -11,7 +11,7 @@ import { useAI } from './hooks/useAI';
 import { useAudio } from './hooks/useAudio';
 import { useScreenshot } from './hooks/useScreenshot';
 import { useSettings } from './hooks/useSettings';
-import { resetTranscriptStore, useTranscript } from './hooks/useTranscript';
+import { hydrateTranscriptStore, resetTranscriptStore, useTranscript } from './hooks/useTranscript';
 import type { ActionType, AIRequestType, Message } from './types';
 
 type StreamState = 'idle' | 'active' | 'not-found' | 'error';
@@ -179,6 +179,7 @@ async function startAudioCapture(
 
   const workletNode = new AudioWorkletNode(audioCtx, 'pcm-extractor');
   const meterNodes: Array<{ analyser: AnalyserNode; label: string }> = [];
+  let latestSourceHint: 'me' | 'them' | 'unknown' = 'unknown';
   let levelTimer: number | null = null;
   let bytesThisSecond = 0;
   let lastBytesReport = Date.now();
@@ -228,14 +229,39 @@ async function startAudioCapture(
 
   if (meterNodes.length > 0) {
     levelTimer = window.setInterval(() => {
+      let micLevel = 0;
+      let systemLevel = 0;
       for (const meter of meterNodes) {
         const data = new Float32Array(meter.analyser.fftSize);
         meter.analyser.getFloatTimeDomainData(data);
         const level = rmsLevel(data);
+        if (meter.label === 'mic') {
+          micLevel = level;
+        } else if (meter.label === 'blackhole') {
+          systemLevel = level;
+        }
         logToTerminal(
           'log',
           `[AUDIO] ${meter.label} rms=${level.toFixed(5)} active=${level > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold}`
         );
+      }
+
+      let nextSourceHint: 'me' | 'them' | 'unknown' = 'unknown';
+      if (micLevel > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold || systemLevel > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold) {
+        if (!systemStream && micStream) {
+          nextSourceHint = 'me';
+        } else if (!micStream && systemStream) {
+          nextSourceHint = 'them';
+        } else if (micLevel > systemLevel * 1.15) {
+          nextSourceHint = 'me';
+        } else if (systemLevel > micLevel * 1.15) {
+          nextSourceHint = 'them';
+        }
+      }
+
+      if (nextSourceHint !== latestSourceHint) {
+        latestSourceHint = nextSourceHint;
+        window.electronAPI.setAudioSourceHint?.(nextSourceHint);
       }
     }, AUDIO_RUNTIME_CONFIG.levelLogIntervalMs);
   }
@@ -245,6 +271,7 @@ async function startAudioCapture(
       if (levelTimer) {
         window.clearInterval(levelTimer);
       }
+      window.electronAPI.setAudioSourceHint?.('unknown');
       workletNode.disconnect();
       sink.disconnect();
       micStream?.getTracks().forEach((track) => track.stop());
@@ -265,6 +292,7 @@ function startAudioCaptureFallback(
   const sink = audioCtx.createGain();
   sink.gain.value = 0;
   const meterNodes: Array<{ analyser: AnalyserNode; label: string }> = [];
+  let latestSourceHint: 'me' | 'them' | 'unknown' = 'unknown';
   let levelTimer: number | null = null;
   let accumulator: Int16Array[] = [];
   let lastSend = Date.now();
@@ -328,14 +356,39 @@ function startAudioCaptureFallback(
 
   if (meterNodes.length > 0) {
     levelTimer = window.setInterval(() => {
+      let micLevel = 0;
+      let systemLevel = 0;
       for (const meter of meterNodes) {
         const data = new Float32Array(meter.analyser.fftSize);
         meter.analyser.getFloatTimeDomainData(data);
         const level = rmsLevel(data);
+        if (meter.label === 'mic') {
+          micLevel = level;
+        } else if (meter.label === 'blackhole') {
+          systemLevel = level;
+        }
         logToTerminal(
           'log',
           `[AUDIO] ${meter.label} rms=${level.toFixed(5)} active=${level > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold}`
         );
+      }
+
+      let nextSourceHint: 'me' | 'them' | 'unknown' = 'unknown';
+      if (micLevel > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold || systemLevel > AUDIO_RUNTIME_CONFIG.rmsActivityThreshold) {
+        if (!systemStream && micStream) {
+          nextSourceHint = 'me';
+        } else if (!micStream && systemStream) {
+          nextSourceHint = 'them';
+        } else if (micLevel > systemLevel * 1.15) {
+          nextSourceHint = 'me';
+        } else if (systemLevel > micLevel * 1.15) {
+          nextSourceHint = 'them';
+        }
+      }
+
+      if (nextSourceHint !== latestSourceHint) {
+        latestSourceHint = nextSourceHint;
+        window.electronAPI.setAudioSourceHint?.(nextSourceHint);
       }
     }, AUDIO_RUNTIME_CONFIG.levelLogIntervalMs);
   }
@@ -345,6 +398,7 @@ function startAudioCaptureFallback(
       if (levelTimer) {
         window.clearInterval(levelTimer);
       }
+      window.electronAPI.setAudioSourceHint?.('unknown');
       processor.disconnect();
       sink.disconnect();
       micStream?.getTracks().forEach((track) => track.stop());
@@ -507,6 +561,13 @@ export default function App() {
   }, [isAskOpen]);
 
   useEffect(() => {
+    void window.electronAPI.setWindowClickThrough?.(false);
+    return () => {
+      void window.electronAPI.setWindowClickThrough?.(true);
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof settings?.windowOpacity === 'number') {
       void window.electronAPI.setWindowOpacity?.(settings.windowOpacity);
     }
@@ -516,11 +577,31 @@ export default function App() {
   }, [settings?.windowOpacity, settings?.includeOverlayInScreenshots]);
 
   useEffect(() => {
-    void window.electronAPI.getSettings().then((result) => {
-      setSettings(result);
-    });
+    void (async () => {
+      const [nextSettings, overlayState] = await Promise.all([
+        window.electronAPI.getSettings(),
+        window.electronAPI.getActiveOverlayState?.() ?? Promise.resolve(null)
+      ]);
 
-    void window.electronAPI.clearHistory().then(() => {
+      setSettings(nextSettings);
+
+      if (overlayState) {
+        const transcriptLines = overlayState.transcript
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        setMessages(overlayState.messages);
+        hydrateTranscriptStore(transcriptLines);
+        transcriptRef.current = overlayState.transcript;
+        transcriptSeenRef.current = transcriptLines.length > 0;
+        updateDiagnostic(setDiagnostic, {
+          whisperPreview: transcriptLines.at(-1)?.slice(0, 60) ?? '',
+          whisperStatus: transcriptLines.length > 0 ? 'running' : 'waiting'
+        });
+        return;
+      }
+
       setMessages([]);
       resetTranscriptStore();
       transcriptRef.current = '';
@@ -529,7 +610,7 @@ export default function App() {
         whisperPreview: '',
         whisperStatus: 'waiting'
       });
-    });
+    })();
   }, [setSettings]);
 
   useEffect(() => {
@@ -857,10 +938,22 @@ export default function App() {
     audioControllerRef.current = controller;
   };
 
+  const handleCloseOverlay = async () => {
+    flushAIState();
+    setMessages([]);
+    setAskInput('');
+    setIsAskOpen(false);
+    await window.electronAPI.closeOverlaySession?.();
+  };
+
   return (
     <div className="app-shell">
       <div className={`overlay-column ${hasRecentAudio ? 'overlay--speaking' : 'overlay--silent'}`}>
-        <div id="overlay-root" ref={overlayRootRef} className="overlay-shell">
+        <div
+          id="overlay-root"
+          ref={overlayRootRef}
+          className="overlay-shell"
+        >
           <div className="pill-row">
             <div className="overlay-avatar drag-region">
               <img src="/logo.png" alt="Sync." className="overlay-avatar-img" />
@@ -873,7 +966,7 @@ export default function App() {
               onAsk={() => setIsAskOpen(true)}
               onAnswer={() => void handleQuickAction('answer_now')}
               onInsights={() => void handleInsights()}
-              onEndAndReview={() => void window.electronAPI.endSessionAndReview?.()}
+              onEndAndReview={() => void handleCloseOverlay()}
               onHide={() => void window.electronAPI.hideWindow()}
               onPauseSession={() => undefined}
               onToggleMic={() => void handleToggleRecording()}

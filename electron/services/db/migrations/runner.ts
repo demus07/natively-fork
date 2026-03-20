@@ -1,10 +1,12 @@
 import { DATABASE_RUNTIME_CONFIG } from '../../../../src/config';
 import type Database from 'better-sqlite3';
 import createSessionTablesMigration from './001_create_session_tables';
+import addUtteranceSourceMigration from './002_add_utterance_source';
 import type { DatabaseMigration } from './types';
 
 const MIGRATIONS: DatabaseMigration[] = [
-  createSessionTablesMigration
+  createSessionTablesMigration,
+  addUtteranceSourceMigration
 ];
 
 function ensureMigrationTable(database: Database.Database): void {

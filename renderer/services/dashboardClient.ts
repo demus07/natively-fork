@@ -70,11 +70,25 @@ export const dashboardClient = {
     });
   },
 
-  onSessionSummaryUpdate(callback: (payload: { sessionId: string; summary: DashboardSummary }) => void): () => void {
+  testLlm(settings: Partial<Settings>): Promise<IPCResult<{ ok: boolean; latencyMs?: number }>> {
+    return requestJson<{ ok: boolean; latencyMs?: number }>('/settings/test-llm', {
+      method: 'POST',
+      body: JSON.stringify(settings)
+    });
+  },
+
+  testStt(settings: Partial<Settings>): Promise<IPCResult<{ ok: boolean }>> {
+    return requestJson<{ ok: boolean }>('/settings/test-stt', {
+      method: 'POST',
+      body: JSON.stringify(settings)
+    });
+  },
+
+  onSessionSummaryUpdate(callback: (payload: { sessionId: string; summary: DashboardSummary; title: string }) => void): () => void {
     const source = new EventSource(`${API_BASE}/events`);
     const handler = (event: MessageEvent<string>) => {
       try {
-        const payload = JSON.parse(event.data) as { sessionId: string; summary: DashboardSummary };
+        const payload = JSON.parse(event.data) as { sessionId: string; summary: DashboardSummary; title: string };
         callback(payload);
       } catch {
         // Ignore malformed event data.

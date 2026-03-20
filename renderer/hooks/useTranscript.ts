@@ -61,6 +61,12 @@ export function resetTranscriptStore(): void {
   emitSnapshot();
 }
 
+export function hydrateTranscriptStore(lines: string[]): void {
+  transcriptStore.finalLines = lines.filter((line) => line.trim().length > 0);
+  transcriptStore.interimText = '';
+  emitSnapshot();
+}
+
 export function useTranscript() {
   const [finalLines, setFinalLines] = useState<string[]>(transcriptStore.finalLines);
   const [interimText, setInterimText] = useState<string>(transcriptStore.interimText);

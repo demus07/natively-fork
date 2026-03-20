@@ -11,6 +11,18 @@ function formatOffset(startedMs: number): string {
   return `[${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}]`;
 }
 
+function getSpeakerLabel(source: DashboardUtterance['source']): 'Me' | 'Them' | 'Captured' {
+  if (source === 'me') {
+    return 'Me';
+  }
+
+  if (source === 'them') {
+    return 'Them';
+  }
+
+  return 'Captured';
+}
+
 export default function TranscriptTab({ utterances }: TranscriptTabProps) {
   if (utterances.length === 0) {
     return (
@@ -26,7 +38,17 @@ export default function TranscriptTab({ utterances }: TranscriptTabProps) {
         <div key={`${utterance.id ?? utterance.startedMs}-${utterance.text}`} className="dashboard-transcript-line">
           <span className="dashboard-transcript-time">{formatOffset(utterance.startedMs)}</span>
           <div className="dashboard-transcript-content">
-            <span className="dashboard-transcript-speaker dashboard-transcript-speaker-you">You</span>
+            <span
+              className={`dashboard-transcript-speaker ${
+                utterance.source === 'me'
+                  ? 'dashboard-transcript-speaker-you'
+                  : utterance.source === 'them'
+                    ? 'dashboard-transcript-speaker-remote'
+                    : 'dashboard-transcript-speaker-captured'
+              }`}
+            >
+              {getSpeakerLabel(utterance.source)}
+            </span>
             <span className="dashboard-transcript-text">{utterance.text}</span>
           </div>
         </div>

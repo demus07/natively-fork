@@ -86,6 +86,14 @@ export interface DashboardUtterance {
   endedMs: number;
   text: string;
   isFinal: boolean;
+  source?: 'me' | 'them' | 'unknown';
+}
+
+export interface DashboardChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
 }
 
 export interface DashboardSessionSummary {
@@ -104,6 +112,7 @@ export interface DashboardSession extends DashboardSessionSummary {
   summary: DashboardSummary | null;
   transcript: string;
   utterances: DashboardUtterance[];
+  messages: DashboardChatMessage[];
 }
 
 export interface IPCResult<T> {
@@ -122,12 +131,14 @@ export interface ElectronAPI {
   moveWindow: (direction: 'up' | 'down' | 'left' | 'right') => void;
   updateContentDimensions: (dimensions: ContentDimensions) => Promise<void>;
   setWindowOpacity?: (opacity: number) => Promise<void>;
+  setWindowClickThrough?: (enabled: boolean) => Promise<void>;
   quitApp: () => void;
   captureFullScreen: () => Promise<string>;
   captureSelectiveScreen: () => Promise<string>;
   startAudioCapture: () => Promise<{ success: boolean; usingNativeCapture?: boolean }>;
   stopAudioCapture: () => Promise<void>;
   pushAudioChunk: (chunk: Uint8Array) => void;
+  setAudioSourceHint?: (source: 'me' | 'them' | 'unknown') => void;
   logDebug?: (payload: { level: 'log' | 'warn' | 'error'; message: string; data?: unknown }) => void;
   onTranscriptInterim?: (callback: (text: string) => void) => () => void;
   onTranscriptUpdate: (callback: (payload: TranscriptEvent) => void) => () => void;
@@ -140,8 +151,14 @@ export interface ElectronAPI {
   onTriggerAnswer: (callback: () => void) => () => void;
   onScreenshotCaptured: (callback: (image: string) => void) => () => void;
   getSettings: () => Promise<Settings>;
+  getActiveOverlayState?: () => Promise<{
+    sessionId: string;
+    transcript: string;
+    messages: Message[];
+  } | null>;
   getCodexStatus?: () => Promise<{ found: boolean; path: string | null }>;
   saveSettings: (settings: Settings) => Promise<void>;
+  closeOverlaySession?: () => Promise<{ success: boolean; sessionId: string | null }>;
   endSessionAndReview?: () => Promise<{ success: boolean; sessionId: string | null }>;
   getConversationHistory: () => Promise<Message[]>;
   clearHistory: () => Promise<void>;
@@ -153,7 +170,7 @@ export interface ElectronAPI {
   saveProviderSettings?: (settings: unknown) => Promise<{ ok: boolean }>;
   launchOverlay?: () => Promise<{ ok: boolean }>;
   openSetup?: () => Promise<{ ok: boolean }>;
-  openDashboard?: (payload?: { sessionId?: string }) => Promise<{ ok: boolean }>;
+  openDashboard?: (payload?: { sessionId?: string; mode?: 'settings' }) => Promise<{ ok: boolean }>;
 }
 
 declare global {

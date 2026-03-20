@@ -4,7 +4,13 @@ import { AI_RUNTIME_CONFIG } from '../../src/config';
 import type { AIPayload, Message } from '../../renderer/types';
 import { routeAIRequest } from '../services/aiRouter';
 import { registry } from '../services/providerRegistry';
+import { getActiveSession } from '../services/activeSession';
 import { getMessages, saveMessage, trackUsage } from '../services/database';
+
+let currentWindow: BrowserWindow | null = null;
+let currentCaptureFullScreen: (() => Promise<string>) | null = null;
+let fallbackSessionId = '';
+let handlersRegistered = false;
 
 function estimateTokens(content: string): number {
   return Math.max(1, Math.ceil(content.length / 4));
@@ -15,17 +21,31 @@ export function initAIHandlers(
   sessionId: string,
   captureFullScreen: () => Promise<string>
 ): void {
+  currentWindow = mainWindow;
+  currentCaptureFullScreen = captureFullScreen;
+  fallbackSessionId = sessionId;
+
+  if (handlersRegistered) {
+    return;
+  }
+  handlersRegistered = true;
+
   ipcMain.handle(IPC_CHANNELS.sendAIMessage, async (_event, payload: AIPayload) => {
+    if (!currentWindow || !currentCaptureFullScreen) {
+      throw new Error('Overlay window is not ready for AI requests');
+    }
+
     console.log('[AI HANDLER] received request, type:', payload.type);
     let assistantResponse = '';
     try {
       const promptSource =
         payload.type === 'custom' ? payload.userMessage?.trim() || 'Custom prompt' : payload.type;
-      await saveMessage('user', promptSource, sessionId);
+      const activeSessionId = getActiveSession()?.sessionId ?? fallbackSessionId;
+      await saveMessage('user', promptSource, activeSessionId);
 
       let screenshot = payload.screenshot ?? null;
       if (!screenshot && registry.getLLM().supportsVision) {
-        const screenshotPromise = captureFullScreen().catch((error) => {
+        const screenshotPromise = currentCaptureFullScreen().catch((error) => {
           console.warn('[SCREEN] Screenshot unavailable — sending text-only request', error);
           return null;
         });
@@ -45,19 +65,21 @@ export function initAIHandlers(
             ...payload,
             screenshot
           },
-          mainWindow
+          currentWindow
         )
       ).response;
 
       const tokensUsed = estimateTokens(assistantResponse);
-      await saveMessage('assistant', assistantResponse, sessionId, tokensUsed);
+      await saveMessage('assistant', assistantResponse, activeSessionId, tokensUsed);
       await trackUsage(tokensUsed);
     } catch (error) {
       const message =
         error instanceof Error
           ? `AI request failed: ${error.message}`
           : 'AI request failed. Check your provider settings and try again.';
-      mainWindow.webContents.send(IPC_CHANNELS.aiError, message);
+      if (currentWindow && !currentWindow.isDestroyed()) {
+        currentWindow.webContents.send(IPC_CHANNELS.aiError, message);
+      }
     }
   });
 

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { dashboardActions } from '../../services/dashboardActions';
 import type { DashboardSession } from '../../types';
+import AISynopsesTab from './AISynopsesTab';
 import OverviewTab from './OverviewTab';
 import SessionHeader from './SessionHeader';
 import TabBar from './TabBar';
 import TranscriptTab from './TranscriptTab';
 
-type ActiveTab = 'overview' | 'transcript';
+type ActiveTab = 'overview' | 'ai' | 'transcript';
 
 interface SessionDetailProps {
   session: DashboardSession;
@@ -74,9 +75,19 @@ export default function SessionDetail({ session, onSessionPatched, onToast }: Se
     onToast('Regenerating summary...');
   };
 
+  const handleResumeSession = async () => {
+    const result = await dashboardActions.launchOverlay(session.id);
+    if (!result.ok) {
+      onToast(result.error?.message || 'Could not resume the session.', 'error');
+      return;
+    }
+
+    onToast('Session resumed in overlay.');
+  };
+
   return (
     <div className="dashboard-detail">
-      <SessionHeader session={session} onRename={handleRename} />
+      <SessionHeader session={session} onRename={handleRename} onResume={handleResumeSession} />
       <TabBar activeTab={activeTab} onChange={setActiveTab} />
 
       <div className="dashboard-detail-body">
@@ -88,6 +99,8 @@ export default function SessionDetail({ session, onSessionPatched, onToast }: Se
             onCopyOverview={handleCopyOverview}
             onRegenerate={handleRegenerateSummary}
           />
+        ) : activeTab === 'ai' ? (
+          <AISynopsesTab messages={session.messages} />
         ) : (
           <TranscriptTab utterances={session.utterances} />
         )}

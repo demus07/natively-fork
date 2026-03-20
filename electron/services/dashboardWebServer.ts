@@ -4,9 +4,11 @@ import path from 'node:path';
 import { app } from 'electron';
 import isDev from 'electron-is-dev';
 import { DASHBOARD_WEB_CONFIG } from '../../src/config';
-import { getAllSettings, saveAllSettings } from './database';
+import type { Settings } from '../../renderer/types';
+import { getAllSettings, getMessages, saveAllSettings } from './database';
 import { launchOverlayFromDashboard } from './dashboardCommands';
 import { dashboardEvents } from './dashboardEvents';
+import { testLlmProvider, testSttProvider } from './providerTests';
 import { sessionService } from './SessionService';
 import { summarizationService } from './SummarizationService';
 
@@ -36,10 +38,13 @@ function dashboardOrigin(): string {
   return `http://${DASHBOARD_WEB_CONFIG.host}:${DASHBOARD_WEB_CONFIG.port}`;
 }
 
-export function getDashboardAppUrl(sessionId?: string): string {
+export function getDashboardAppUrl(sessionId?: string, mode?: 'settings'): string {
   const url = new URL('/dashboard', dashboardOrigin());
   if (sessionId) {
     url.searchParams.set('sessionId', sessionId);
+  }
+  if (mode) {
+    url.searchParams.set('mode', mode);
   }
   return url.toString();
 }
@@ -193,12 +198,25 @@ async function handleDashboardRequest(
     if (request.method === 'GET' && route.startsWith('/sessions/')) {
       const sessionId = decodeURIComponent(route.slice('/sessions/'.length));
       const session = await sessionService.getSession(sessionId);
-      sendJson(response, 200, { ok: true, data: session });
+      const messages = await getMessages(sessionId, 100);
+      sendJson(response, 200, {
+        ok: true,
+        data: {
+          ...session,
+          messages: messages.map((message) => ({
+            id: String(message.id),
+            role: message.role,
+            content: message.content,
+            timestamp: message.timestamp
+          }))
+        }
+      });
       return;
     }
 
     if (request.method === 'POST' && route === '/overlay/launch') {
-      await launchOverlayFromDashboard();
+      const body = await readJsonBody<{ sessionId?: string }>(request);
+      await launchOverlayFromDashboard(body.sessionId);
       sendJson(response, 200, { ok: true, data: null });
       return;
     }
@@ -252,6 +270,32 @@ async function handleDashboardRequest(
         ...body
       });
       sendJson(response, 200, { ok: true, data: saved });
+      return;
+    }
+
+    if (request.method === 'POST' && route === '/settings/test-llm') {
+      const body = await readJsonBody<Partial<Settings>>(request);
+      const result = await testLlmProvider({
+        ...getAllSettings(),
+        ...body
+      });
+      sendJson(response, result.ok ? 200 : 400, { ok: result.ok, data: result.ok ? result : undefined, error: result.ok ? undefined : {
+        code: 'LLM_TEST_FAILED',
+        message: result.error || 'LLM connection test failed'
+      } });
+      return;
+    }
+
+    if (request.method === 'POST' && route === '/settings/test-stt') {
+      const body = await readJsonBody<Partial<Settings>>(request);
+      const result = await testSttProvider({
+        ...getAllSettings(),
+        ...body
+      });
+      sendJson(response, result.ok ? 200 : 400, { ok: result.ok, data: result.ok ? result : undefined, error: result.ok ? undefined : {
+        code: 'STT_TEST_FAILED',
+        message: result.error || 'STT connection test failed'
+      } });
       return;
     }
 

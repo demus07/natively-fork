@@ -16,7 +16,6 @@ import {
 import isDev from 'electron-is-dev';
 import {
   APP_BEHAVIOR,
-  LEGACY_PROVIDER_VALUES,
   PROVIDER_DEFAULTS,
   WINDOW_CONFIG
 } from '../src/config';
@@ -26,16 +25,13 @@ import { initAudioHandlers, stopAudioCapturePipeline } from './ipc/audioHandlers
 import { initScreenshotHandlers } from './ipc/screenshotHandlers';
 import { initSessionHandlers } from './ipc/sessionHandlers';
 import { initWindowHandlers, registerWindowShortcuts } from './ipc/windowHandlers';
-import { DeepgramProvider } from './providers/DeepgramProvider';
-import { CodexProvider } from './providers/CodexProvider';
-import { GeminiProvider } from './providers/GeminiProvider';
-import { OllamaProvider } from './providers/OllamaProvider';
-import { WhisperProvider } from './providers/WhisperProvider';
+import { testLlmProvider, testSttProvider } from './services/providerTests';
 import { createSetupWindow, closeSetupWindow } from './setupWindow';
 import { clearActiveSession, getActiveSession, setActiveSession } from './services/activeSession';
 import {
   clearMessages,
   getAllSettings,
+  getMessages,
   getUsageStats,
   initDatabase,
   saveAllSettings
@@ -68,14 +64,6 @@ function getCodexBinaryCandidates(): string[] {
     path.join(os.homedir(), '.local', 'bin', 'codex'),
     'codex'
   ].filter(Boolean) as string[];
-}
-
-function normalizeCodexModel(model?: string): string {
-  const trimmedModel = (model || '').trim();
-  if (trimmedModel === LEGACY_PROVIDER_VALUES.codexUnsupportedDefaultModel) {
-    return '';
-  }
-  return trimmedModel;
 }
 
 function centerOverlayWindow(window: BrowserWindow): void {
@@ -112,6 +100,20 @@ async function startOverlaySession(): Promise<void> {
   console.log('[SESSION] Started overlay session', {
     sessionId: session.id,
     providers
+  });
+}
+
+async function resumeOverlaySession(sessionId: string): Promise<void> {
+  const session = await sessionService.resumeSession(sessionId);
+  setActiveSession({
+    sessionId: session.id,
+    createdAt: Date.now() - (session.durationMs ?? 0),
+    providerLlm: session.providerLlm,
+    providerStt: session.providerStt
+  });
+  console.log('[SESSION] Resumed overlay session', {
+    sessionId: session.id,
+    durationMs: session.durationMs
   });
 }
 
@@ -172,6 +174,8 @@ function createMainWindow(): BrowserWindow {
     show: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    movable: true,
+    focusable: true,
     resizable: false,
     useContentSize: true,
     maximizable: false,
@@ -256,6 +260,25 @@ function registerCommonHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.getSettings, () => getAllSettings());
   ipcMain.handle(IPC_CHANNELS.saveSettings, async (_event, settings) => saveAllSettings(settings));
+  ipcMain.handle(IPC_CHANNELS.getActiveOverlayState, async () => {
+    const activeSession = getActiveSession();
+    if (!activeSession) {
+      return null;
+    }
+
+    const session = await sessionService.getSession(activeSession.sessionId);
+    const messages = await getMessages(activeSession.sessionId, 100);
+    return {
+      sessionId: session.id,
+      transcript: session.transcript,
+      messages: messages.map((message: { id: number; role: 'user' | 'assistant' | 'system'; content: string; timestamp: string }) => ({
+        id: String(message.id),
+        role: message.role,
+        content: message.content,
+        timestamp: new Date(message.timestamp).getTime()
+      }))
+    };
+  });
   ipcMain.handle(IPC_CHANNELS.clearHistory, async () => {
     await clearMessages();
   });
@@ -292,15 +315,20 @@ function registerCommonHandlers(): void {
   );
 }
 
-async function launchOverlay(): Promise<void> {
+async function launchOverlay(resumeSessionId?: string): Promise<void> {
   if (overlayHandlersRegistered && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
     mainWindow.focus();
     return;
   }
 
+  registry.initFromSettings(getAllSettings());
   mainWindow = createMainWindow();
-  await startOverlaySession();
+  if (resumeSessionId) {
+    await resumeOverlaySession(resumeSessionId);
+  } else {
+    await startOverlaySession();
+  }
 
   mainWindow.on('close', (event) => {
     if (overlayCloseInFlight) {
@@ -358,6 +386,13 @@ function registerSessionLifecycleHandlers(): void {
 
   sessionLifecycleHandlersRegistered = true;
 
+  ipcMain.handle(IPC_CHANNELS.closeOverlaySession, async () => {
+    overlayCloseInFlight = true;
+    const sessionId = await endActiveOverlaySession();
+    mainWindow?.destroy();
+    return { success: true, sessionId };
+  });
+
   ipcMain.handle(IPC_CHANNELS.endSessionAndReview, async () => {
     overlayCloseInFlight = true;
     const sessionId = await endActiveOverlaySession();
@@ -370,8 +405,8 @@ function registerSessionLifecycleHandlers(): void {
     return { success: true, sessionId };
   });
 
-  ipcMain.handle(IPC_CHANNELS.dashboardOpen, async (_event, payload?: { sessionId?: string }) => {
-    await shell.openExternal(getDashboardAppUrl(payload?.sessionId));
+  ipcMain.handle(IPC_CHANNELS.dashboardOpen, async (_event, payload?: { sessionId?: string; mode?: 'settings' }) => {
+    await shell.openExternal(getDashboardAppUrl(payload?.sessionId, payload?.mode));
     return { ok: true };
   });
 }
@@ -395,30 +430,14 @@ function registerSetupHandlers(): void {
         ollamaModel?: string;
       }
     ) => {
-      try {
-        if (config.provider === 'codex') {
-          const provider = new CodexProvider({
-            model: normalizeCodexModel(config.codexModel || PROVIDER_DEFAULTS.codexModel)
-          });
-          return await provider.testConnection();
-        }
-
-        if (config.provider === 'gemini') {
-          const provider = new GeminiProvider({
-            apiKey: config.geminiApiKey || '',
-            model: config.geminiModel || PROVIDER_DEFAULTS.geminiModel
-          });
-          return await provider.testConnection();
-        }
-
-        const provider = new OllamaProvider({
-          endpoint: config.ollamaEndpoint || 'http://localhost:11434',
-          model: config.ollamaModel || PROVIDER_DEFAULTS.ollamaModel
-        });
-        return await provider.testConnection();
-      } catch (error) {
-        return { ok: false, error: (error as Error).message };
-      }
+      return testLlmProvider({
+        llmProvider: config.provider,
+        codexModel: config.codexModel,
+        geminiApiKey: config.geminiApiKey,
+        geminiModel: config.geminiModel,
+        ollamaEndpoint: config.ollamaEndpoint,
+        ollamaModel: config.ollamaModel
+      } as Partial<ReturnType<typeof getAllSettings>>);
     }
   );
 
@@ -433,23 +452,13 @@ function registerSetupHandlers(): void {
         whisperModel?: string;
       }
     ) => {
-      try {
-        if (config.provider === 'deepgram') {
-          const provider = new DeepgramProvider({
-            apiKey: config.deepgramApiKey || '',
-            model: config.deepgramModel || PROVIDER_DEFAULTS.deepgramModel
-          });
-          return await provider.testConnection();
-        }
-
-        const provider = new WhisperProvider({
-          model: config.whisperModel || PROVIDER_DEFAULTS.whisperModel,
-          language: PROVIDER_DEFAULTS.whisperLanguage
-        });
-        return await provider.testConnection();
-      } catch (error) {
-        return { ok: false, error: (error as Error).message };
-      }
+      return testSttProvider({
+        sttProvider: config.provider,
+        deepgramApiKey: config.deepgramApiKey,
+        deepgramModel: config.deepgramModel,
+        whisperModel: config.whisperModel,
+        whisperLanguage: PROVIDER_DEFAULTS.whisperLanguage
+      } as Partial<ReturnType<typeof getAllSettings>>);
     }
   );
 
@@ -474,15 +483,8 @@ function registerSetupHandlers(): void {
 }
 
 function showSetupWindowOnLaunch(): void {
-  const settings = getAllSettings();
-  console.log('[MAIN] Showing setup window on launch', {
-    isDev,
-    setupComplete: areProviderSettingsComplete(settings),
-    alwaysShowSetupOnLaunch: APP_BEHAVIOR.alwaysShowSetupOnLaunch
-  });
-
-  const setupWindow = createSetupWindow();
-  loadRendererPage(setupWindow, 'setup');
+  console.log('[MAIN] Opening dashboard settings on launch');
+  void shell.openExternal(getDashboardAppUrl(undefined, 'settings'));
 }
 
 async function bootstrap(): Promise<void> {
@@ -502,18 +504,20 @@ async function bootstrap(): Promise<void> {
     registerSessionLifecycleHandlers();
     initSessionHandlers();
 
-    // Current product behavior is to route every launch through setup so users can pick providers each time.
     if (APP_BEHAVIOR.alwaysShowSetupOnLaunch || !areProviderSettingsComplete(getAllSettings())) {
       showSetupWindowOnLaunch();
     } else {
-      registry.initFromSettings(getAllSettings());
-      console.log('[MAIN] Providers initialised from settings');
-      await launchOverlay();
+      await shell.openExternal(getDashboardAppUrl());
     }
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
-        showSetupWindowOnLaunch();
+        if (APP_BEHAVIOR.alwaysShowSetupOnLaunch || !areProviderSettingsComplete(getAllSettings())) {
+          showSetupWindowOnLaunch();
+          return;
+        }
+
+        void shell.openExternal(getDashboardAppUrl());
         return;
       }
 

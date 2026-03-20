@@ -1,4 +1,4 @@
-type SessionTab = 'overview' | 'transcript';
+type SessionTab = 'overview' | 'ai' | 'transcript';
 
 interface TabBarProps {
   activeTab: SessionTab;
@@ -14,6 +14,13 @@ export default function TabBar({ activeTab, onChange }: TabBarProps) {
         onClick={() => onChange('overview')}
       >
         Overview
+      </button>
+      <button
+        type="button"
+        className={activeTab === 'ai' ? 'dashboard-tab dashboard-tab-active' : 'dashboard-tab'}
+        onClick={() => onChange('ai')}
+      >
+        AI synopses
       </button>
       <button
         type="button"

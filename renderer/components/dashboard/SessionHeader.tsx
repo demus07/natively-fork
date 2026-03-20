@@ -4,6 +4,7 @@ import type { DashboardSession } from '../../types';
 interface SessionHeaderProps {
   session: DashboardSession;
   onRename: (title: string) => Promise<void>;
+  onResume: () => Promise<void>;
 }
 
 function formatDate(value: number): string {
@@ -24,7 +25,7 @@ function formatDuration(durationMs: number | null): string {
   return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 }
 
-export default function SessionHeader({ session, onRename }: SessionHeaderProps) {
+export default function SessionHeader({ session, onRename, onResume }: SessionHeaderProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(session.title);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -95,6 +96,9 @@ export default function SessionHeader({ session, onRename }: SessionHeaderProps)
         <span className="dashboard-session-meta-separator">·</span>
         <span className="dashboard-provider-badge">{session.providerLlm}</span>
         <span className="dashboard-provider-badge">{session.providerStt}</span>
+        <button type="button" className="dashboard-resume-btn" onClick={() => void onResume()}>
+          Resume
+        </button>
       </div>
     </header>
   );

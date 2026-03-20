@@ -7,6 +7,10 @@ import {
 } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
 
+let currentWindow: BrowserWindow | null = null;
+let screenshotHandlersRegistered = false;
+let includeOverlayInScreenshots = false;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -119,24 +123,24 @@ export function initScreenshotHandlers(mainWindow: BrowserWindow): {
   captureFullScreen: () => Promise<string>;
   captureSelectiveScreen: () => Promise<string>;
 } {
-  let includeOverlayInScreenshots = false;
+  currentWindow = mainWindow;
 
   const captureWithOverlayPreference = async <T>(capture: () => Promise<T>): Promise<T> => {
-    const shouldHide = !includeOverlayInScreenshots && mainWindow.isVisible();
+    const shouldHide = !includeOverlayInScreenshots && Boolean(currentWindow?.isVisible());
     if (!shouldHide) {
       return capture();
     }
 
-    mainWindow.hide();
-    mainWindow.setIgnoreMouseEvents(true);
+    currentWindow?.hide();
+    currentWindow?.setIgnoreMouseEvents(true);
     await sleep(120);
 
     try {
       return await capture();
     } finally {
-      mainWindow.show();
-      mainWindow.focus();
-      mainWindow.setIgnoreMouseEvents(false);
+      currentWindow?.show();
+      currentWindow?.focus();
+      currentWindow?.setIgnoreMouseEvents(false);
     }
   };
 
@@ -150,7 +154,7 @@ export function initScreenshotHandlers(mainWindow: BrowserWindow): {
     captureWithOverlayPreference(
       () =>
         new Promise<string>((resolve, reject) => {
-          const overlay = createOverlayWindow(includeOverlayInScreenshots ? mainWindow : undefined);
+          const overlay = createOverlayWindow(includeOverlayInScreenshots ? currentWindow ?? undefined : undefined);
       const cleanup = () => {
         ipcMain.removeListener('selection-made', onSelectionMade);
         if (!overlay.isDestroyed()) {
@@ -188,11 +192,14 @@ export function initScreenshotHandlers(mainWindow: BrowserWindow): {
         })
     );
 
-  ipcMain.handle(IPC_CHANNELS.captureFullScreen, captureFullScreen);
-  ipcMain.handle(IPC_CHANNELS.captureSelectiveScreen, captureSelectiveScreen);
-  ipcMain.handle(IPC_CHANNELS.setScreenshotOverlayVisibility, (_event, visible: boolean) => {
-    includeOverlayInScreenshots = Boolean(visible);
-  });
+  if (!screenshotHandlersRegistered) {
+    screenshotHandlersRegistered = true;
+    ipcMain.handle(IPC_CHANNELS.captureFullScreen, captureFullScreen);
+    ipcMain.handle(IPC_CHANNELS.captureSelectiveScreen, captureSelectiveScreen);
+    ipcMain.handle(IPC_CHANNELS.setScreenshotOverlayVisibility, (_event, visible: boolean) => {
+      includeOverlayInScreenshots = Boolean(visible);
+    });
+  }
 
   return { captureFullScreen, captureSelectiveScreen };
 }

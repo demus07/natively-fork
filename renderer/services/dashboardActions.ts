@@ -1,5 +1,5 @@
 import { DASHBOARD_WEB_CONFIG } from '../../src/config';
-import type { DashboardSessionSummary, IPCResult } from '../types';
+import type { DashboardSessionSummary, IPCResult, Settings } from '../types';
 
 const API_BASE = `http://${DASHBOARD_WEB_CONFIG.host}:${DASHBOARD_WEB_CONFIG.port}${DASHBOARD_WEB_CONFIG.apiBasePath}`;
 
@@ -19,9 +19,13 @@ async function parseResponse<T>(response: Response): Promise<IPCResult<T>> {
 }
 
 export const dashboardActions = {
-  async launchOverlay(): Promise<IPCResult<null>> {
+  async launchOverlay(sessionId?: string): Promise<IPCResult<null>> {
     const response = await fetch(`${API_BASE}/overlay/launch`, {
-      method: 'POST'
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(sessionId ? { sessionId } : {})
     });
     return parseResponse<null>(response);
   },
@@ -49,5 +53,27 @@ export const dashboardActions = {
       method: 'POST'
     });
     return parseResponse<null>(response);
+  },
+
+  async testLlm(settings: Partial<Settings>): Promise<IPCResult<{ ok: boolean; latencyMs?: number }>> {
+    const response = await fetch(`${API_BASE}/settings/test-llm`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(settings)
+    });
+    return parseResponse<{ ok: boolean; latencyMs?: number }>(response);
+  },
+
+  async testStt(settings: Partial<Settings>): Promise<IPCResult<{ ok: boolean }>> {
+    const response = await fetch(`${API_BASE}/settings/test-stt`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(settings)
+    });
+    return parseResponse<{ ok: boolean }>(response);
   }
 };

@@ -7,6 +7,7 @@ const IPC_CHANNELS = {
   moveWindow: 'window-move',
   updateContentDimensions: 'window-update-content-dimensions',
   setWindowOpacity: 'window-set-opacity',
+  setWindowClickThrough: 'window-set-click-through',
   quitApp: 'window-quit',
   triggerAnswer: 'trigger-answer',
   captureFullScreen: 'capture-full-screen',
@@ -15,6 +16,7 @@ const IPC_CHANNELS = {
   startAudioCapture: 'start-audio-capture',
   stopAudioCapture: 'stop-audio-capture',
   pushAudioChunk: 'push-audio-chunk',
+  setAudioSourceHint: 'set-audio-source-hint',
   rendererDebugLog: 'renderer-debug-log',
   transcriptInterim: 'transcript-interim',
   transcriptUpdate: 'transcript-update',
@@ -29,8 +31,10 @@ const IPC_CHANNELS = {
   getCodexStatus: 'get-codex-status',
   saveSettings: 'save-settings',
   getConversationHistory: 'get-conversation-history',
+  getActiveOverlayState: 'get-active-overlay-state',
   clearHistory: 'clear-history',
   getUsageStats: 'get-usage-stats',
+  closeOverlaySession: 'close-overlay-session',
   endSessionAndReview: 'end-session-and-review',
   dashboardOpen: 'dashboard-open'
 } as const;
@@ -43,6 +47,7 @@ const electronAPI = {
   updateContentDimensions: (dimensions: { width: number; height: number }) =>
     ipcRenderer.invoke(IPC_CHANNELS.updateContentDimensions, dimensions),
   setWindowOpacity: (opacity: number) => ipcRenderer.invoke(IPC_CHANNELS.setWindowOpacity, opacity),
+  setWindowClickThrough: (enabled: boolean) => ipcRenderer.invoke(IPC_CHANNELS.setWindowClickThrough, enabled),
   quitApp: () => ipcRenderer.invoke(IPC_CHANNELS.quitApp),
   captureFullScreen: () => ipcRenderer.invoke(IPC_CHANNELS.captureFullScreen) as Promise<string>,
   captureSelectiveScreen: () => ipcRenderer.invoke(IPC_CHANNELS.captureSelectiveScreen) as Promise<string>,
@@ -52,6 +57,7 @@ const electronAPI = {
     ipcRenderer.invoke(IPC_CHANNELS.startAudioCapture) as Promise<{ success: boolean; usingNativeCapture?: boolean }>,
   stopAudioCapture: () => ipcRenderer.invoke(IPC_CHANNELS.stopAudioCapture) as Promise<void>,
   pushAudioChunk: (chunk: Uint8Array) => ipcRenderer.send(IPC_CHANNELS.pushAudioChunk, chunk),
+  setAudioSourceHint: (source: 'me' | 'them' | 'unknown') => ipcRenderer.send(IPC_CHANNELS.setAudioSourceHint, source),
   logDebug: (payload: { level: 'log' | 'warn' | 'error'; message: string; data?: unknown }) =>
     ipcRenderer.send(IPC_CHANNELS.rendererDebugLog, payload),
   onTranscriptUpdate: (callback: (payload: { text: string; timestamp?: number; isFinal?: boolean }) => void) => {
@@ -106,6 +112,8 @@ const electronAPI = {
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.getSettings),
   getCodexStatus: () => ipcRenderer.invoke(IPC_CHANNELS.getCodexStatus),
   saveSettings: (settings: unknown) => ipcRenderer.invoke(IPC_CHANNELS.saveSettings, settings),
+  getActiveOverlayState: () => ipcRenderer.invoke(IPC_CHANNELS.getActiveOverlayState),
+  closeOverlaySession: () => ipcRenderer.invoke(IPC_CHANNELS.closeOverlaySession),
   endSessionAndReview: () => ipcRenderer.invoke(IPC_CHANNELS.endSessionAndReview),
   getConversationHistory: () => ipcRenderer.invoke(IPC_CHANNELS.getConversationHistory),
   clearHistory: () => ipcRenderer.invoke(IPC_CHANNELS.clearHistory) as Promise<void>,
@@ -115,7 +123,7 @@ const electronAPI = {
   saveProviderSettings: (settings: unknown) => ipcRenderer.invoke('setup:saveSettings', settings),
   launchOverlay: () => ipcRenderer.invoke('setup:complete'),
   openSetup: () => ipcRenderer.invoke('setup:open'),
-  openDashboard: (payload?: { sessionId?: string }) => ipcRenderer.invoke(IPC_CHANNELS.dashboardOpen, payload)
+  openDashboard: (payload?: { sessionId?: string; mode?: 'settings' }) => ipcRenderer.invoke(IPC_CHANNELS.dashboardOpen, payload)
 };
 
 contextBridge.exposeInMainWorld('electronAPI', electronAPI);

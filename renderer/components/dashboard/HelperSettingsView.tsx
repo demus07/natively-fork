@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { LEGACY_PROVIDER_VALUES, PROVIDER_DEFAULTS, UI_LIMITS } from '../../../src/config';
+import { dashboardActions } from '../../services/dashboardActions';
 import { dashboardClient } from '../../services/dashboardClient';
 import type { LLMProvider, Settings, STTProvider } from '../../types';
 
@@ -11,6 +12,20 @@ interface HelperSettingsViewProps {
 export default function HelperSettingsView({ settings, onSettingsSaved }: HelperSettingsViewProps) {
   const [draft, setDraft] = useState<Settings>(settings);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [launching, setLaunching] = useState(false);
+  const [llmTest, setLlmTest] = useState<{ status: 'idle' | 'testing' | 'success' | 'error'; message: string }>({
+    status: 'idle',
+    message: 'Not tested yet'
+  });
+  const [sttTest, setSttTest] = useState<{ status: 'idle' | 'testing' | 'success' | 'error'; message: string }>({
+    status: 'idle',
+    message: 'Not tested yet'
+  });
+  const [launchStatus, setLaunchStatus] = useState<{ status: 'idle' | 'success' | 'error'; message: string }>({
+    status: 'idle',
+    message: ''
+  });
 
   const normalizeCodexModel = (model?: string): string => {
     const trimmedModel = (model || '').trim();
@@ -27,21 +42,84 @@ export default function HelperSettingsView({ settings, onSettingsSaved }: Helper
     });
   }, [settings]);
 
-  const handleSave = async () => {
+  const normalizedDraft = {
+    ...draft,
+    codexModel: normalizeCodexModel(draft.codexModel)
+  };
+
+  const persistSettings = async (): Promise<Settings | null> => {
+    setSaving(true);
     const result = await dashboardClient.saveSettings({
-      ...draft,
-      codexModel: normalizeCodexModel(draft.codexModel)
+      ...normalizedDraft
     });
+    setSaving(false);
+
     if (!result.ok || !result.data) {
-      return;
+      return null;
     }
+
     onSettingsSaved(result.data);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1200);
+    return result.data;
+  };
+
+  const handleSave = async () => {
+    await persistSettings();
   };
 
   const updateDraft = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     setDraft((current) => ({ ...current, [key]: value }));
+    setLlmTest({ status: 'idle', message: 'Not tested yet' });
+    setSttTest({ status: 'idle', message: 'Not tested yet' });
+    setLaunchStatus({ status: 'idle', message: '' });
+  };
+
+  const handleTestLlm = async () => {
+    setLlmTest({ status: 'testing', message: 'Testing language model…' });
+    const result = await dashboardActions.testLlm(normalizedDraft);
+    if (!result.ok) {
+      setLlmTest({ status: 'error', message: result.error?.message || 'LLM test failed' });
+      return;
+    }
+
+    const latency = result.data?.latencyMs ? ` in ${result.data.latencyMs} ms` : '';
+    setLlmTest({ status: 'success', message: `Connected${latency}` });
+  };
+
+  const handleTestStt = async () => {
+    setSttTest({ status: 'testing', message: 'Testing speech transcription…' });
+    const result = await dashboardActions.testStt(normalizedDraft);
+    if (!result.ok) {
+      setSttTest({ status: 'error', message: result.error?.message || 'STT test failed' });
+      return;
+    }
+
+    setSttTest({ status: 'success', message: 'Connected' });
+  };
+
+  const handleLaunchOverlay = async () => {
+    setLaunching(true);
+    const savedSettings = await persistSettings();
+    if (!savedSettings) {
+      setLaunching(false);
+      return;
+    }
+
+    const result = await dashboardActions.launchOverlay();
+    setLaunching(false);
+    if (!result.ok) {
+      setLaunchStatus({
+        status: 'error',
+        message: result.error?.message || 'Could not launch the overlay'
+      });
+      return;
+    }
+
+    setLaunchStatus({
+      status: 'success',
+      message: 'Overlay launch requested'
+    });
   };
 
   const currentLlmDetail = (() => {
@@ -78,7 +156,7 @@ export default function HelperSettingsView({ settings, onSettingsSaved }: Helper
       <div className="dashboard-detail-header">
         <div>
           <p className="dashboard-eyebrow">Configuration</p>
-          <h2 className="dashboard-detail-title">Helper Settings</h2>
+          <h2 className="dashboard-detail-title">Settings</h2>
         </div>
       </div>
 
@@ -302,11 +380,43 @@ export default function HelperSettingsView({ settings, onSettingsSaved }: Helper
           <p>Ollama endpoint: {draft.ollamaEndpoint || PROVIDER_DEFAULTS.ollamaEndpoint}</p>
           <p>Whisper model: {draft.whisperModel || PROVIDER_DEFAULTS.whisperModel}</p>
         </section>
+
+        <section className="dashboard-card dashboard-card-full">
+          <h3>Verification</h3>
+          <div className="dashboard-settings-test-grid">
+            <div className={`dashboard-settings-status dashboard-settings-status-${llmTest.status}`}>
+              <strong>LLM</strong>
+              <span>{llmTest.message}</span>
+            </div>
+            <div className={`dashboard-settings-status dashboard-settings-status-${sttTest.status}`}>
+              <strong>STT</strong>
+              <span>{sttTest.message}</span>
+            </div>
+          </div>
+          <div className="dashboard-settings-actions">
+            <button type="button" className="dashboard-secondary-btn" onClick={() => void handleTestLlm()} disabled={llmTest.status === 'testing'}>
+              {llmTest.status === 'testing' ? 'Testing LLM…' : 'Test LLM'}
+            </button>
+            <button type="button" className="dashboard-secondary-btn" onClick={() => void handleTestStt()} disabled={sttTest.status === 'testing'}>
+              {sttTest.status === 'testing' ? 'Testing STT…' : 'Test STT'}
+            </button>
+            <button type="button" className="dashboard-primary-btn" onClick={() => void handleLaunchOverlay()} disabled={launching || saving}>
+              {launching ? 'Launching…' : 'Launch overlay'}
+            </button>
+          </div>
+          {launchStatus.status !== 'idle' ? (
+            <p className={`dashboard-settings-note dashboard-settings-note-${launchStatus.status}`}>
+              {launchStatus.message}
+            </p>
+          ) : null}
+        </section>
       </div>
 
-      <button type="button" className="dashboard-primary-btn" onClick={() => void handleSave()}>
-        {saved ? 'Saved' : 'Save settings'}
-      </button>
+      <div className="dashboard-settings-actions">
+        <button type="button" className="dashboard-secondary-btn" onClick={() => void handleSave()} disabled={saving}>
+          {saving ? 'Saving…' : saved ? 'Saved' : 'Save settings'}
+        </button>
+      </div>
     </div>
   );
 }

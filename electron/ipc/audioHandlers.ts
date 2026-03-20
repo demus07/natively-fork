@@ -7,6 +7,8 @@ import { sessionService } from '../services/SessionService';
 
 let listenersBound = false;
 let handlersRegistered = false;
+let currentSourceHint: 'me' | 'them' | 'unknown' = 'unknown';
+let currentWindow: BrowserWindow | null = null;
 
 function estimateUtteranceDuration(text: string): number {
   return Math.max(
@@ -26,6 +28,7 @@ function cleanupAudioListeners(): void {
   stt.removeAllListeners('error');
   stt.removeAllListeners('status');
   listenersBound = false;
+  currentSourceHint = 'unknown';
 }
 
 export function stopAudioCapturePipeline(): void {
@@ -33,6 +36,8 @@ export function stopAudioCapturePipeline(): void {
 }
 
 export function initAudioHandlers(mainWindow: BrowserWindow): void {
+  currentWindow = mainWindow;
+
   const bindListeners = () => {
     const stt = registry.getSTT();
     if (listenersBound) {
@@ -43,8 +48,8 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
     }
 
     stt.on('interim', (text: string) => {
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.transcriptInterim, text);
+      if (currentWindow && !currentWindow.isDestroyed()) {
+        currentWindow.webContents.send(IPC_CHANNELS.transcriptInterim, text);
       }
     });
 
@@ -58,14 +63,15 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
           startedMs,
           endedMs,
           text,
-          isFinal: true
+          isFinal: true,
+          source: currentSourceHint
         }).catch((error) => {
           console.warn('[SESSION] Failed to append utterance:', error);
         });
       }
 
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.transcriptUpdate, {
+      if (currentWindow && !currentWindow.isDestroyed()) {
+        currentWindow.webContents.send(IPC_CHANNELS.transcriptUpdate, {
           text,
           timestamp: Date.now()
         });
@@ -73,16 +79,16 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
     });
 
     stt.on('error', (error: Error) => {
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.transcriptError, {
+      if (currentWindow && !currentWindow.isDestroyed()) {
+        currentWindow.webContents.send(IPC_CHANNELS.transcriptError, {
           message: error.message
         });
       }
     });
 
     stt.on('status', (status: string) => {
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.transcriptStatus, {
+      if (currentWindow && !currentWindow.isDestroyed()) {
+        currentWindow.webContents.send(IPC_CHANNELS.transcriptStatus, {
           status
         });
       }
@@ -118,6 +124,10 @@ export function initAudioHandlers(mainWindow: BrowserWindow): void {
       } catch (error) {
         console.warn('[AUDIO] Failed to forward PCM chunk:', error);
       }
+    });
+
+    ipcMain.on(IPC_CHANNELS.setAudioSourceHint, (_event, source: 'me' | 'them' | 'unknown') => {
+      currentSourceHint = source;
     });
 
     ipcMain.handle(IPC_CHANNELS.stopAudioCapture, async () => {

@@ -20,6 +20,7 @@ export interface Utterance {
   endedMs: number;
   text: string;
   isFinal: boolean;
+  source?: 'me' | 'them' | 'unknown';
 }
 
 export interface SessionSummary {

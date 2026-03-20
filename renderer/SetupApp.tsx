@@ -125,7 +125,7 @@ export default function SetupApp() {
   const openDashboard = async () => {
     try {
       await persistProviderSettings();
-      await window.electronAPI.openDashboard?.();
+      await window.electronAPI.openDashboard?.({ mode: 'settings' });
     } catch (err) {
       alert(`Could not open dashboard: ${err}`);
     }

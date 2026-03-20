@@ -1,23 +1,42 @@
 import { app, globalShortcut, ipcMain, type BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../../src/shared';
 
+let currentWindow: BrowserWindow | null = null;
+let initialY = 40;
+let hasShownOnce = false;
+let handlersRegistered = false;
+let shortcutsRegistered = false;
+let triggerAnswerHandler: (() => void) | null = null;
+let captureFullHandler: (() => void) | null = null;
+let captureSelectiveHandler: (() => void) | null = null;
+
 export function initWindowHandlers(mainWindow: BrowserWindow): void {
-  let hasShownOnce = false;
-  const initialY = mainWindow.getBounds().y;
+  currentWindow = mainWindow;
+  initialY = mainWindow.getBounds().y;
+  hasShownOnce = false;
+
+  if (handlersRegistered) {
+    return;
+  }
+  handlersRegistered = true;
 
   ipcMain.handle(IPC_CHANNELS.hideWindow, () => {
-    mainWindow.hide();
-    mainWindow.setIgnoreMouseEvents(true);
+    currentWindow?.hide();
+    currentWindow?.setIgnoreMouseEvents(true);
   });
 
   ipcMain.handle(IPC_CHANNELS.showWindow, () => {
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.setIgnoreMouseEvents(false);
+    currentWindow?.show();
+    currentWindow?.focus();
+    currentWindow?.setIgnoreMouseEvents(false);
   });
 
   ipcMain.handle(IPC_CHANNELS.moveWindow, (_event, direction: 'up' | 'down' | 'left' | 'right') => {
-    const [x, y] = mainWindow.getPosition();
+    if (!currentWindow) {
+      return;
+    }
+
+    const [x, y] = currentWindow.getPosition();
     const delta = 20;
     const next = {
       up: [x, y - delta],
@@ -25,18 +44,22 @@ export function initWindowHandlers(mainWindow: BrowserWindow): void {
       left: [x - delta, y],
       right: [x + delta, y]
     }[direction];
-    mainWindow.setPosition(next[0], next[1]);
+    currentWindow.setPosition(next[0], next[1]);
   });
 
   ipcMain.handle(IPC_CHANNELS.updateContentDimensions, (_event, dimensions: { width: number; height: number }) => {
+    if (!currentWindow) {
+      return;
+    }
+
     const width = Math.max(720, Math.ceil(dimensions.width));
     const height = Math.max(120, Math.ceil(dimensions.height));
     const clampedWidth = Math.min(width, 720);
     const clampedHeight = Math.min(height, 560);
-    const [currentX, currentY] = mainWindow.getPosition();
-    const [, currentHeight] = mainWindow.getContentSize();
+    const [currentX] = currentWindow.getPosition();
+    const [, currentHeight] = currentWindow.getContentSize();
     if (Math.abs(currentHeight - clampedHeight) > 4) {
-      mainWindow.setBounds({
+      currentWindow.setBounds({
         x: currentX,
         y: initialY,
         width: clampedWidth,
@@ -45,15 +68,22 @@ export function initWindowHandlers(mainWindow: BrowserWindow): void {
     }
     if (!hasShownOnce) {
       hasShownOnce = true;
-      mainWindow.show();
-      mainWindow.focus();
-      mainWindow.setIgnoreMouseEvents(false);
+      currentWindow.show();
+      currentWindow.focus();
+      currentWindow.setIgnoreMouseEvents(false);
     }
   });
 
   ipcMain.handle(IPC_CHANNELS.setWindowOpacity, (_event, opacity: number) => {
+    if (!currentWindow) {
+      return;
+    }
     const next = Math.max(0.7, Math.min(1, opacity));
-    mainWindow.setOpacity(next);
+    currentWindow.setOpacity(next);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.setWindowClickThrough, (_event, enabled: boolean) => {
+    currentWindow?.setIgnoreMouseEvents(Boolean(enabled), { forward: Boolean(enabled) });
   });
 
   ipcMain.handle(IPC_CHANNELS.quitApp, () => {
@@ -67,26 +97,43 @@ export function registerWindowShortcuts(
   captureFull: () => void,
   captureSelective: () => void
 ): void {
+  currentWindow = mainWindow;
+  triggerAnswerHandler = onTriggerAnswer;
+  captureFullHandler = captureFull;
+  captureSelectiveHandler = captureSelective;
+
+  if (shortcutsRegistered) {
+    return;
+  }
+  shortcutsRegistered = true;
+
   const commandOrControl = process.platform === 'darwin' ? 'Command' : 'Control';
   const moveBy = (dx: number, dy: number) => {
-    const [x, y] = mainWindow.getPosition();
-    mainWindow.setPosition(x + dx, y + dy);
+    if (!currentWindow) {
+      return;
+    }
+    const [x, y] = currentWindow.getPosition();
+    currentWindow.setPosition(x + dx, y + dy);
   };
 
   globalShortcut.register(`${commandOrControl}+B`, () => {
-    if (mainWindow.isVisible()) {
-      mainWindow.hide();
-      mainWindow.setIgnoreMouseEvents(true);
+    if (!currentWindow) {
+      return;
+    }
+
+    if (currentWindow.isVisible()) {
+      currentWindow.hide();
+      currentWindow.setIgnoreMouseEvents(true);
     } else {
-      mainWindow.show();
-      mainWindow.focus();
-      mainWindow.setIgnoreMouseEvents(false);
+      currentWindow.show();
+      currentWindow.focus();
+      currentWindow.setIgnoreMouseEvents(false);
     }
   });
 
-  globalShortcut.register(`${commandOrControl}+H`, captureFull);
-  globalShortcut.register(`${commandOrControl}+Shift+H`, captureSelective);
-  globalShortcut.register(`${commandOrControl}+Enter`, onTriggerAnswer);
+  globalShortcut.register(`${commandOrControl}+H`, () => captureFullHandler?.());
+  globalShortcut.register(`${commandOrControl}+Shift+H`, () => captureSelectiveHandler?.());
+  globalShortcut.register(`${commandOrControl}+Enter`, () => triggerAnswerHandler?.());
   globalShortcut.register(`${commandOrControl}+Q`, () => app.quit());
   globalShortcut.register(`${commandOrControl}+Up`, () => moveBy(0, -20));
   globalShortcut.register(`${commandOrControl}+Down`, () => moveBy(0, 20));

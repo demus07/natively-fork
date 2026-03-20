@@ -180,7 +180,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             STT: {draft.sttProvider || 'whisper'}
           </p>
           <button
-            onClick={() => void window.electronAPI.openDashboard?.()}
+            onClick={() => void window.electronAPI.openDashboard?.({ mode: 'settings' })}
             style={{
               width: '100%',
               marginBottom: '10px',
@@ -193,21 +193,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
               cursor: 'pointer'
             }}
           >
-            Open session dashboard ↗
-          </button>
-          <button
-            onClick={() => void window.electronAPI.openSetup?.()}
-            style={{
-              padding: '7px 14px',
-              borderRadius: '8px',
-              border: '1px solid var(--color-border-secondary)',
-              background: 'transparent',
-              color: 'var(--color-text-primary)',
-              fontSize: '13px',
-              cursor: 'pointer'
-            }}
-          >
-            Reconfigure Providers
+            Manage providers in dashboard ↗
           </button>
         </div>
 

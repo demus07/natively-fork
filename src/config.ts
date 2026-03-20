@@ -8,7 +8,7 @@ export const APP_METADATA = {
 } as const;
 
 export const APP_BEHAVIOR = {
-  alwaysShowSetupOnLaunch: true
+  alwaysShowSetupOnLaunch: false
 } as const;
 
 export const WINDOW_CONFIG = {

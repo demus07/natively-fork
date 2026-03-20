@@ -219,10 +219,10 @@ ${rawResponse}`;
   }
 }
 
-function emitSummaryUpdate(sessionId: string, summary: SummaryJson): void {
+function emitSummaryUpdate(sessionId: string, summary: SummaryJson, title: string): void {
   for (const window of ElectronBrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
-      window.webContents.send(IPC_CHANNELS.SESSION_SUMMARY_UPDATE, { sessionId, summary });
+      window.webContents.send(IPC_CHANNELS.SESSION_SUMMARY_UPDATE, { sessionId, summary, title });
     }
   }
 }
@@ -261,8 +261,9 @@ export class SummarizationService {
       }
 
       await sessionService.updateSummary(sessionId, parsed);
-      dashboardEvents.emitSummaryUpdate({ sessionId, summary: parsed });
-      emitSummaryUpdate(sessionId, parsed);
+      const updatedSession = await sessionService.getSession(sessionId);
+      dashboardEvents.emitSummaryUpdate({ sessionId, summary: parsed, title: updatedSession.title });
+      emitSummaryUpdate(sessionId, parsed, updatedSession.title);
       console.log('[SUMMARY] Session summary stored', { sessionId });
     } catch (error) {
       console.warn('[SUMMARY] Failed to summarize session', {
