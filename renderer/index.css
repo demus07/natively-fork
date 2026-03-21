@@ -99,6 +99,15 @@ html, body, #root {
   color: var(--text-primary);
 }
 
+body,
+button,
+textarea,
+input,
+select,
+option {
+  font-family: 'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif;
+}
+
 body {
   user-select: none;
   -webkit-font-smoothing: antialiased;
@@ -618,12 +627,6 @@ samp {
   color: rgba(255, 255, 255, 0.88);
   max-width: 90%;
   width: 100%;
-}
-
-.ask-panel-response .hud-msg-ai:has(.markdown-code-block) {
-  background: transparent;
-  border-color: transparent;
-  padding: 0;
 }
 
 .ask-panel-response .hud-msg-ai.streaming {
@@ -1711,11 +1714,6 @@ samp {
   border-color: rgba(111, 133, 226, 0.16);
 }
 
-.dashboard-ai-message-assistant:has(.markdown-code-block) {
-  background: transparent;
-  border-color: transparent;
-}
-
 .dashboard-ai-message-meta {
   display: flex;
   align-items: center;
@@ -1739,12 +1737,12 @@ samp {
   margin: 0;
   color: #d9e1ff;
   font-size: 14px;
-  line-height: 1.65;
+  line-height: 1.5;
   white-space: pre-wrap;
 }
 
 .dashboard-ai-message-copy p {
-  margin: 0 0 10px;
+  margin: 0 0 6px;
 }
 
 .dashboard-ai-message-copy p:last-child {
@@ -1752,7 +1750,7 @@ samp {
 }
 
 .dashboard-ai-message-copy pre {
-  margin: 8px 0;
+  margin: 6px 0;
 }
 
 .dashboard-ai-message-copy code {
@@ -1768,7 +1766,7 @@ samp {
 
 .markdown-rendered .markdown-code-block {
   position: relative;
-  margin: 10px 0;
+  margin: 8px 0;
   padding: 0;
   background: #1a1a1a;
   border: none;
