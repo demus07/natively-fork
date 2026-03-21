@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -95,7 +95,7 @@ html, body, #root {
   padding: 0;
   background: transparent !important;
   overflow: hidden;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif;
   color: var(--text-primary);
 }
 
@@ -106,6 +106,13 @@ body {
 
 button, textarea, input, select {
   font: inherit;
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: 'Geist Mono', 'Fira Code', 'JetBrains Mono', monospace;
 }
 
 .drag-region {
@@ -613,6 +620,12 @@ button, textarea, input, select {
   width: 100%;
 }
 
+.ask-panel-response .hud-msg-ai:has(.markdown-code-block) {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
+
 .ask-panel-response .hud-msg-ai.streaming {
   border-color: rgba(99, 140, 255, 0.35);
   animation: stream-pulse 1.5s ease-in-out infinite;
@@ -625,6 +638,21 @@ button, textarea, input, select {
   line-height: 1.6;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.ask-panel-response .hud-msg-ai-content pre {
+  margin: 8px 0;
+}
+
+.ask-panel-response .hud-msg-ai-content code {
+  font-family: 'Geist Mono', 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+.ask-panel-response .hud-msg-ai-content :not(pre) > code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
 }
 
 .ask-panel-inputrow {
@@ -811,7 +839,7 @@ button, textarea, input, select {
   padding: 5px 12px;
   font-size: 10px;
   color: rgba(255, 255, 255, 0.5);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: 'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif;
 }
 
 .diagnostics-strip {
@@ -1683,6 +1711,11 @@ button, textarea, input, select {
   border-color: rgba(111, 133, 226, 0.16);
 }
 
+.dashboard-ai-message-assistant:has(.markdown-code-block) {
+  background: transparent;
+  border-color: transparent;
+}
+
 .dashboard-ai-message-meta {
   display: flex;
   align-items: center;
@@ -1708,6 +1741,65 @@ button, textarea, input, select {
   font-size: 14px;
   line-height: 1.65;
   white-space: pre-wrap;
+}
+
+.dashboard-ai-message-copy p {
+  margin: 0 0 10px;
+}
+
+.dashboard-ai-message-copy p:last-child {
+  margin-bottom: 0;
+}
+
+.dashboard-ai-message-copy pre {
+  margin: 8px 0;
+}
+
+.dashboard-ai-message-copy code {
+  font-family: 'Geist Mono', 'Fira Code', 'JetBrains Mono', monospace;
+}
+
+.dashboard-ai-message-copy :not(pre) > code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+}
+
+.markdown-rendered .markdown-code-block {
+  position: relative;
+  margin: 10px 0;
+  padding: 0;
+  background: #1a1a1a;
+  border: none;
+  box-shadow: none;
+}
+
+.markdown-rendered .markdown-code-block pre,
+.markdown-rendered .markdown-code-block code,
+.markdown-rendered .markdown-code-block span,
+.markdown-rendered .markdown-code-block div {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.markdown-rendered .markdown-code-block pre {
+  font-family: 'Geist Mono', 'Fira Code', 'JetBrains Mono', monospace !important;
+  font-size: 13px !important;
+  line-height: 1.7 !important;
+}
+
+.markdown-rendered .markdown-code-label {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 2;
+  font-family: 'Geist Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.3);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+  pointer-events: none;
 }
 
 .dashboard-list {
@@ -1806,7 +1898,7 @@ button, textarea, input, select {
 }
 
 .dashboard-transcript-time {
-  font-family: monospace;
+  font-family: 'Geist Sans', 'Geist', system-ui, -apple-system, sans-serif;
   font-size: 12px;
   color: #3f3f46;
   min-width: 42px;

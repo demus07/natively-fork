@@ -1,3 +1,4 @@
+import MarkdownContent from '../MarkdownContent';
 import type { DashboardChatMessage } from '../../types';
 
 interface AISynopsesTabProps {
@@ -51,7 +52,7 @@ export default function AISynopsesTab({ messages }: AISynopsesTabProps) {
                   <span className="dashboard-ai-message-time">{formatMessageTimestamp(message.timestamp)}</span>
                 ) : null}
               </div>
-              <p className="dashboard-ai-message-copy">{message.content}</p>
+              <MarkdownContent content={message.content} className="dashboard-ai-message-copy markdown-rendered" />
             </article>
           ))}
         </div>

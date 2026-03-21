@@ -1,8 +1,6 @@
 import { useEffect, useRef } from 'react';
-import ReactMarkdown from 'react-markdown';
 import { Copy } from 'lucide-react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import MarkdownContent from './MarkdownContent';
 import type { Message } from '../types';
 
 interface ChatPanelProps {
@@ -62,37 +60,7 @@ export default function ChatPanel({ messages, isStreaming, onCopyMessage }: Chat
         return (
           <div key={message.id} className={`msg-ai hud-msg-ai msg-enter ${isStreaming && isLastAssistant ? 'streaming' : ''}`}>
             <div className="msg-ai-content chat-selectable hud-msg-ai-content">
-              <ReactMarkdown
-                components={{
-                  code({ className, children, ...props }: any) {
-                    const match = /language-(\w+)/.exec(className || '');
-                    const isInline = !match;
-                    return !isInline && match ? (
-                      <SyntaxHighlighter
-                        style={oneDark as any}
-                        language={match[1]}
-                        PreTag="div"
-                        customStyle={{
-                          borderRadius: '8px',
-                          fontSize: '12px',
-                          margin: '6px 0',
-                          padding: '10px',
-                          background: 'rgba(0,0,0,0.45)'
-                        }}
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className={className} {...props}>
-                        {children}
-                      </code>
-                    );
-                  }
-                }}
-              >
-                {message.content}
-              </ReactMarkdown>
+              <MarkdownContent content={message.content} className="markdown-rendered" />
               {isStreaming && isLastAssistant ? <span className="cursor-blink">|</span> : null}
             </div>
             <button
